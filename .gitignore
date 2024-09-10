@@ -1,0 +1,4 @@
+.env
+uploads/
+instance/
+init_db.py

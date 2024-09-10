@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="min-h-screen bg-gray-100 flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-8">
+    <div class="sm:mx-auto sm:w-full sm:max-w-2xl">
+        <h2 class="text-center text-4xl font-extrabold text-gray-900 mb-8">
+            Login
+        </h2>
+        <div class="bg-white py-8 px-6 shadow sm:rounded-lg sm:px-10">
+            <form class="space-y-6" method="POST">
+                <div>
+                    <label for="username" class="block text-lg font-medium text-gray-700">
+                        Benutzername
+                    </label>
+                    <div class="mt-1">
+                        <input id="username" name="username" type="text" required
+                               class="appearance-none block w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 text-lg"
+                               placeholder="Geben Sie Ihren Benutzernamen ein">
+                    </div>
+                </div>
+
+                <div>
+                    <label for="password" class="block text-lg font-medium text-gray-700">
+                        Passwort
+                    </label>
+                    <div class="mt-1">
+                        <input id="password" name="password" type="password" required
+                               class="appearance-none block w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 text-lg"
+                               placeholder="Geben Sie Ihr Passwort ein">
+                    </div>
+                </div>
+
+                <div>
+                    <button type="submit"
+                            class="w-full flex justify-center py-3 px-6 border border-transparent rounded-lg shadow-sm text-lg font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150 ease-in-out">
+                        Anmelden
+                    </button>
+                </div>
+            </form>
+
+            {% with messages = get_flashed_messages() %}
+                {% if messages %}
+                    {% for message in messages %}
+                        <div class="mt-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg relative" role="alert">
+                            <span class="block text-lg">{{ message }}</span>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+        </div>
+    </div>
+</div>
+{% endblock %}

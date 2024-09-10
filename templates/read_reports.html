@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container max-w-full mx-auto px-4 py-8">
+    <h2 class="text-3xl font-bold mb-8">Erstellte Berichte</h2>
+    <div class="mb-8">
+        <input type="text" id="searchInput" placeholder="Suche nach Patientenname" class="w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500" aria-label="Patientensuche">
+    </div>
+    <div id="reportList" class="space-y-8">
+        {% for year, year_patients in patients|groupby(attribute='last_update.year')|reverse %}
+        <div class="year-group mb-10">
+            <h3 class="text-2xl font-semibold mb-6 bg-gray-100 px-4 py-2 rounded-lg">{{ year }}</h3>
+            <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                {% for patient in year_patients %}
+                <div class="patient-card bg-white shadow-lg rounded-lg overflow-hidden">
+                    <button class="patient-toggle w-full bg-blue-600 text-white px-6 py-4 flex justify-between items-center cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 hover:bg-blue-700 transition duration-150" data-patient-id="{{ patient.id }}">
+                        <h3 class="text-lg font-semibold">{{ patient.name }} (ID: {{ patient.id }})</h3>
+                        <span class="text-sm bg-blue-500 px-2 py-1 rounded">{{ patient.last_update|format_timestamp }}</span>
+                    </button>
+                    <div class="patient-content p-6 hidden" data-patient-id="{{ patient.id }}">
+                        <div class="grid gap-4">
+                            {% for report in patient.reports %}
+                            <div class="report-card bg-gray-50 p-4 rounded-lg shadow">
+                                <h4 class="font-medium text-gray-800 mb-2">{{ report.type }}</h4>
+                                <p class="text-sm text-gray-600 mb-3">Erstellt: {{ report.created_at|format_timestamp }}</p>
+                                <div>
+                                    <a href="{{ url_for('view_report', report_id=report.id) }}" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded text-sm inline-block transition duration-150" aria-label="Bericht ansehen für {{ report.type }}">
+                                        Ansehen
+                                    </a>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.getElementById('searchInput');
+    const reportList = document.getElementById('reportList');
+
+    searchInput.addEventListener('input', filterPatients);
+    reportList.addEventListener('click', handleCardClick);
+
+    function filterPatients() {
+        const searchTerm = searchInput.value.toLowerCase();
+        const patientCards = document.querySelectorAll('.patient-card');
+
+        patientCards.forEach(card => {
+            const patientName = card.querySelector('h3').textContent.toLowerCase();
+            const patientId = card.querySelector('h3').textContent.match(/ID: (\d+)/)[1].toLowerCase();
+            if (patientName.includes(searchTerm) || patientId.includes(searchTerm)) {
+                card.style.display = '';
+                card.closest('.year-group').style.display = '';
+            } else {
+                card.style.display = 'none';
+            }
+        });
+
+        // Hide empty year groups
+        document.querySelectorAll('.year-group').forEach(group => {
+            const visibleCards = group.querySelectorAll('.patient-card:not([style="display: none;"])');
+            group.style.display = visibleCards.length ? '' : 'none';
+        });
+    }
+
+    function handleCardClick(event) {
+        const toggle = event.target.closest('.patient-toggle');
+        if (!toggle) return;
+
+        const card = toggle.closest('.patient-card');
+        const content = card.querySelector('.patient-content');
+        if (!content) return;
+
+        // Close all other open cards
+        document.querySelectorAll('.patient-content:not(.hidden)').forEach(openContent => {
+            if (openContent !== content) {
+                openContent.classList.add('hidden');
+                openContent.closest('.patient-card').querySelector('.patient-toggle').setAttribute('aria-expanded', 'false');
+            }
+        });
+
+        // Toggle the clicked card
+        content.classList.toggle('hidden');
+        const expanded = !content.classList.contains('hidden');
+        toggle.setAttribute('aria-expanded', expanded.toString());
+
+        // Smooth scroll to the expanded card
+        if (expanded) {
+            setTimeout(() => {
+                card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 100);
+        }
+    }
+});
+</script>
+{% endblock %}
