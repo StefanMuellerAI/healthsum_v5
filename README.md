@@ -1,0 +1,1 @@
+Es handelt sich um ein einfaches Tool, um medizinische Datensätze zu speichern, zu verwalten und aus ihnen Berichte zu erstellen.
