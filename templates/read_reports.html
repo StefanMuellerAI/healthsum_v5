@@ -11,7 +11,7 @@
             <h3 class="text-2xl font-semibold mb-6 bg-gray-100 px-4 py-2 rounded-lg">{{ year }}</h3>
             <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
                 {% for patient in year_patients %}
-                <div class="patient-card bg-white shadow-lg rounded-lg overflow-hidden">
+                <div class="patient-card bg-white shadow-lg rounded-lg overflow-hidden" data-patient-id="{{ patient.id }}">
                     <button class="patient-toggle w-full bg-blue-600 text-white px-6 py-4 flex justify-between items-center cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 hover:bg-blue-700 transition duration-150" data-patient-id="{{ patient.id }}">
                         <h3 class="text-lg font-semibold">{{ patient.name }} (ID: {{ patient.id }})</h3>
                         <span class="text-sm bg-blue-500 px-2 py-1 rounded">{{ patient.last_update|format_timestamp }}</span>
@@ -42,10 +42,14 @@
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const searchInput = document.getElementById('searchInput');
-    const reportList = document.getElementById('reportList');
 
     searchInput.addEventListener('input', filterPatients);
-    reportList.addEventListener('click', handleCardClick);
+
+    // Eventlistener für alle Toggle-Buttons hinzufügen
+    const toggles = document.querySelectorAll('.patient-toggle');
+    toggles.forEach(toggle => {
+        toggle.addEventListener('click', handleCardClick);
+    });
 
     function filterPatients() {
         const searchTerm = searchInput.value.toLowerCase();
@@ -53,7 +57,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
         patientCards.forEach(card => {
             const patientName = card.querySelector('h3').textContent.toLowerCase();
-            const patientId = card.querySelector('h3').textContent.match(/ID: (\d+)/)[1].toLowerCase();
+            const patientIdMatch = card.querySelector('h3').textContent.match(/ID: (\d+)/);
+            const patientId = patientIdMatch ? patientIdMatch[1].toLowerCase() : '';
             if (patientName.includes(searchTerm) || patientId.includes(searchTerm)) {
                 card.style.display = '';
                 card.closest('.year-group').style.display = '';
@@ -62,36 +67,44 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
 
-        // Hide empty year groups
+        // Verstecke leere Jahr-Gruppen
         document.querySelectorAll('.year-group').forEach(group => {
-            const visibleCards = group.querySelectorAll('.patient-card:not([style="display: none;"])');
+            const visibleCards = group.querySelectorAll('.patient-card:not([style*="display: none"])');
             group.style.display = visibleCards.length ? '' : 'none';
         });
     }
 
     function handleCardClick(event) {
-        const toggle = event.target.closest('.patient-toggle');
-        if (!toggle) return;
-
+        const toggle = event.currentTarget;
         const card = toggle.closest('.patient-card');
+        if (!card) return;
+
+        const patientId = card.getAttribute('data-patient-id');
+
+        // Selektiere den Inhalt innerhalb der angeklickten Karte
         const content = card.querySelector('.patient-content');
         if (!content) return;
 
-        // Close all other open cards
-        document.querySelectorAll('.patient-content:not(.hidden)').forEach(openContent => {
-            if (openContent !== content) {
-                openContent.classList.add('hidden');
-                openContent.closest('.patient-card').querySelector('.patient-toggle').setAttribute('aria-expanded', 'false');
+        // Öffne oder schließe die angeklickte Box
+        const isHidden = content.classList.contains('hidden');
+        content.classList.toggle('hidden');
+        toggle.setAttribute('aria-expanded', (!isHidden).toString());
+
+        // Schließe alle anderen geöffneten Boxen
+        const otherCards = document.querySelectorAll('.patient-card:not([data-patient-id="' + patientId + '"])');
+        otherCards.forEach(otherCard => {
+            const otherContent = otherCard.querySelector('.patient-content');
+            if (otherContent && !otherContent.classList.contains('hidden')) {
+                otherContent.classList.add('hidden');
+                const otherToggle = otherCard.querySelector('.patient-toggle');
+                if (otherToggle) {
+                    otherToggle.setAttribute('aria-expanded', 'false');
+                }
             }
         });
 
-        // Toggle the clicked card
-        content.classList.toggle('hidden');
-        const expanded = !content.classList.contains('hidden');
-        toggle.setAttribute('aria-expanded', expanded.toString());
-
-        // Smooth scroll to the expanded card
-        if (expanded) {
+        // Smooth Scroll zur angeklickten Karte
+        if (!isHidden) {
             setTimeout(() => {
                 card.scrollIntoView({ behavior: 'smooth', block: 'start' });
             }, 100);

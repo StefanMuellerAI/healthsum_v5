@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 # Konfiguration der OpenAI- und Google Gemini-Clients
 openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 openai_model = os.environ["OPENAI_MODEL"]
+
 genai.configure(api_key=os.environ["GEMINI_API_KEY"])
 gemini_model = genai.GenerativeModel(os.environ["GEMINI_MODEL"])
 

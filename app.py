@@ -1,9 +1,11 @@
-# app.py
+import eventlet
+eventlet.monkey_patch()
 
 import os
 import logging
 from flask import Flask, render_template, request, jsonify, redirect, url_for, flash
 from werkzeug.utils import secure_filename
+from flask_socketio import SocketIO, emit, join_room
 from celery_config import create_celery_app
 from models import db, HealthRecord, Report, User
 from celery import chain
@@ -11,6 +13,10 @@ from tasks import process_pdfs, create_report, process_record
 from datetime import datetime
 from flask_login import login_user, login_required, logout_user, LoginManager, current_user
 from werkzeug.security import check_password_hash
+from celery.app.control import Inspect
+from extensions import socketio
+from celery.result import AsyncResult
+
 
 # Hilfsfunktion für das Formatieren des Timestamps
 def format_timestamp(timestamp):
@@ -21,13 +27,13 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(leve
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')  # Fügen Sie diese Zeile hinzu
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///health_records.db'
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['CELERY_BROKER_URL'] = 'redis://localhost:6380/0'
 app.config['CELERY_RESULT_BACKEND'] = 'redis://localhost:6380/0'
-
-# Initialisieren der Datenbank
+socketio.init_app(app)
 db.init_app(app)
 
 # Erstellen der Celery-Instanz
@@ -101,70 +107,10 @@ def upload_file():
         logger.warning("No valid PDF files uploaded")
         return jsonify({'error': 'No valid PDF files uploaded'}), 400
 
-
-@app.route('/status/<task_id>')
-@login_required
+@app.route('/task_status/<task_id>')
 def task_status(task_id):
-    logger.info(f"Checking status for task: {task_id}")
-    task = celery.AsyncResult(task_id)
-    logger.debug(f"Task state: {task.state}")
-    logger.debug(f"Task info: {task.info}")
-
-    if task.state == 'PENDING':
-        response = {
-            'state': task.state,
-            'status': 'Verarbeitung wird gestartet...',
-            'percentage': 0
-        }
-    elif task.state == 'PROGRESS':
-        response = {
-            'state': task.state,
-            'status': task.info.get('status', 'Verarbeitung läuft...'),
-            'percentage': task.info.get('percentage', 50)
-        }
-    elif task.state == 'FAILURE':
-        logger.error(f"Task failed: {task.info}")
-        response = {
-            'state': task.state,
-            'status': 'Fehler bei der Verarbeitung',
-            'percentage': 100,
-            'error_type': task.info.get('exc_type', 'Unbekannter Fehler') if isinstance(task.info, dict) else 'Unbekannter Fehler',
-            'error_message': task.info.get('exc_message', 'Keine Fehlermeldung verfügbar') if isinstance(task.info, dict) else str(task.info),
-            'traceback': task.info.get('traceback', 'Kein Traceback verfügbar') if isinstance(task.info, dict) else None
-        }
-    elif task.state == 'SUCCESS':
-        if isinstance(task.info, dict) and 'subtask_id' in task.info:
-            subtask = celery.AsyncResult(task.info['subtask_id'])
-            if subtask.state == 'SUCCESS':
-                response = {
-                    'state': 'SUCCESS',
-                    'status': 'Verarbeitung abgeschlossen',
-                    'percentage': 100,
-                    'result': subtask.result
-                }
-            else:
-                response = {
-                    'state': 'PROGRESS',
-                    'status': 'Subtasks werden ausgeführt...',
-                    'percentage': 75
-                }
-        else:
-            response = {
-                'state': task.state,
-                'status': 'Verarbeitung abgeschlossen',
-                'percentage': 100,
-                'result': task.result
-            }
-    else:
-        response = {
-            'state': task.state,
-            'status': task.info.get('status', 'Unbekannter Status') if isinstance(task.info, dict) else 'Keine Statusinformationen verfügbar',
-            'percentage': task.info.get('percentage', 50) if isinstance(task.info, dict) else 50
-        }
-
-    logger.info(f"Returning status response: {response}")
-    return jsonify(response)
-
+    result = AsyncResult(task_id)
+    return jsonify({'state': result.state})
 
 @app.route('/get_datasets')
 @login_required
@@ -176,6 +122,7 @@ def get_datasets():
             'timestamp': format_timestamp(record.timestamp),
             'filenames': record.filenames,
             'patient_name': record.patient_name,
+            'create_reports': record.create_reports,
             'medical_history_begin': record.medical_history_begin.year if record.medical_history_begin else None,
             'medical_history_end': record.medical_history_end.year if record.medical_history_end else None
         } for record in records
@@ -304,7 +251,39 @@ def logout():
     logout_user()
     return redirect(url_for('index'))
 
+
+def are_tasks_running():
+    i = Inspect(app=celery)
+    active_tasks = i.active()
+    return any(active_tasks.values()) if active_tasks else False
+
+@app.context_processor
+def inject_tasks_status():
+    return dict(tasks_running=are_tasks_running())
+
+@app.route('/status/check_active')
+@login_required
+def check_active_tasks():
+    return jsonify({'active_tasks': are_tasks_running()})
+
+@app.errorhandler(403)
+def forbidden(e):
+    return render_template('403.html'), 403
+
+@socketio.on('connect', namespace='/tasks')
+def test_connect():
+    print('Client verbunden')
+
+@socketio.on('join_task_room', namespace='/tasks')
+def on_join_task_room(data):
+    task_id = data.get('task_id')
+    if task_id:
+        join_room(task_id)
+        print(f'Client joined room for task_id: {task_id}')
+
+
+
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
-    app.run(debug=True, port=5001)
+    socketio.run(app, debug=True, host='127.0.0.1', port=5000)

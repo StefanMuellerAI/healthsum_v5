@@ -4,9 +4,11 @@
     <div class="flex flex-col lg:flex-row lg:space-x-8">
         <div class="lg:w-1/2 mb-8 lg:mb-0">
             <h2 class="text-3xl font-bold mb-6">Gespeicherte Datensätze</h2>
+            <h3 class="text-xl mb-6">Hier finden Sie alle Ihre gespeicherten Datensätze.</h3>
             <div class="mb-6">
                 <input type="text" id="searchInput" placeholder="Suche nach Patientenname" class="w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
             </div>
+            <div class="max-h-screen overflow-y-auto">
             <ul id="datasetList" class="space-y-6">
             {% for record in records %}
                 <li class="bg-white shadow-lg overflow-hidden rounded-lg" data-id="{{ record.id }}">
@@ -27,6 +29,11 @@
                                 <p class="text-sm text-gray-500">
                                     {{ record.timestamp|format_timestamp }}
                                 </p>
+                                <p class="text-sm text-gray-500">
+                                    Berichte: {{ 'Ja' if record.create_reports else 'Nein' }}
+                                </p>
+                               
+                                
                             </div>
                         </div>
                         <div class="flex space-x-3">
@@ -50,9 +57,11 @@
                 </li>
             {% endfor %}
             </ul>
+            </div>
         </div>
         <div class="lg:w-1/2">
             <h2 class="text-3xl font-bold mb-6">Neuen Datensatz erstellen</h2>
+            <h3 class="text-xl mb-6">Hier können Sie einen neuen Datensatz erstellen.</h3>
             <form id="uploadForm" enctype="multipart/form-data" class="space-y-6 bg-white shadow-lg rounded-lg p-6">
                 <div class="space-y-4">
                     <div>
@@ -77,25 +86,21 @@
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
                                 </svg>
                                 <p class="mb-2 text-lg text-gray-500"><span class="font-semibold">Klicken Sie zum Hochladen</span> oder ziehen Sie Dateien hierher</p>
-                                <p class="text-sm text-gray-500">PDF (MAX. 10MB)</p>
+                                <p class="text-sm text-gray-500">PDF (MAX. 50MB)</p>
                             </div>
                             <input id="fileInput" type="file" name="files[]" class="hidden" multiple accept=".pdf" />
                         </label>
                     </div>
                     <div id="fileList" class="mt-4 space-y-2"></div>
                 </div>
-                <button type="submit" class="w-full px-6 py-3 text-lg font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition duration-300">Hochladen</button>
+                <button type="submit" id="uploadButton" class="w-full px-6 py-3 text-lg font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition duration-300 flex items-center justify-center">
+                    <svg id="uploadSpinner" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                    </svg>
+                    Hochladen & Verarbeiten
+                </button>
             </form>
-            <div id="status" class="mt-6 hidden">
-                <div class="mb-2 flex justify-between items-center">
-                    <span id="statusText" class="text-lg font-medium text-gray-700"></span>
-                    <span id="statusPercentage" class="text-lg font-medium text-gray-700"></span>
-                </div>
-                <div class="w-full bg-gray-200 rounded-full h-3">
-                    <div id="statusBar" class="bg-blue-600 h-3 rounded-full transition-all duration-500 ease-out" style="width: 0%"></div>
-                </div>
-                <div id="statusDetails" class="mt-2 text-lg text-gray-600"></div>
-            </div>
         </div>
     </div>
 </div>
@@ -118,13 +123,19 @@
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
                                 </svg>
                                 <p class="mb-2 text-sm text-gray-500"><span class="font-semibold">Klicken Sie zum Hochladen</span> oder ziehen Sie Dateien hierher</p>
-                                <p class="text-xs text-gray-500">PDF (MAX. 10MB)</p>
+                                <p class="text-xs text-gray-500">PDF (MAX. 50MB)</p>
                             </div>
                             <input id="modalFileInput" type="file" name="files[]" class="hidden" multiple accept=".pdf" />
                         </label>
                     </div>
                     <div id="modalFileList" class="mt-2"></div>
-                    <button type="submit" class="mt-4 w-full px-4 py-2 text-white bg-blue-500 rounded hover:bg-blue-600">Hochladen</button>
+                    <button type="submit" class="mt-4 w-full px-4 py-2 text-white bg-blue-500 rounded hover:bg-blue-600 flex items-center justify-center">
+                        <svg id="modalUploadSpinner" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                        </svg>
+                        Hochladen
+                    </button>
                 </form>
             </div>
             <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
@@ -146,7 +157,7 @@
                 <div class="sm:flex sm:items-start">
                     <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left">
                         <h3 class="text-lg leading-6 font-medium text-gray-900" id="modal-title">
-                            Patientendetails
+                            Datensatzdetails
                         </h3>
                         <div class="mt-2">
                             <p id="modalContent"></p>
@@ -162,6 +173,12 @@
         </div>
     </div>
 </div>
+
+<!-- Progress Bar -->
+
+
+
+
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const mainForm = document.getElementById('uploadForm');
@@ -170,8 +187,15 @@ document.addEventListener('DOMContentLoaded', function() {
     const modalFileInput = document.getElementById('modalFileInput');
     const mainFileList = document.getElementById('fileList');
     const modalFileList = document.getElementById('modalFileList');
-    const statusElement = document.getElementById('status');
     const searchInput = document.getElementById('searchInput');
+
+    const progressContainer = document.getElementById('progress-container');
+    const progressBar = document.getElementById('progress-bar');
+    const uploadButton = document.getElementById('uploadButton');
+    const uploadSpinner = document.getElementById('uploadSpinner');
+    const socket = io('/tasks', {
+        transports: ['websocket']
+    });
 
     mainFileInput.addEventListener('change', function() {
         updateFileList(this, mainFileList);
@@ -181,12 +205,21 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     searchInput.addEventListener('input', filterDatasets);
 
-    mainForm.addEventListener('submit', handleFormSubmit);
-    modalForm.addEventListener('submit', handleFormSubmit);
+    mainForm.addEventListener('submit', submitForm);
+    modalForm.addEventListener('submit', submitForm);
 
-    function handleFormSubmit(e) {
-        e.preventDefault();
+    function submitForm(event) {
+        event.preventDefault();
+
         const formData = new FormData(this);
+        const uploadButton = this.querySelector('button[type="submit"]');
+        const uploadSpinner = document.getElementById('uploadSpinner');
+
+        // Button deaktivieren und Spinner anzeigen
+        uploadButton.disabled = true;
+        if (uploadSpinner) {
+            uploadSpinner.classList.remove('hidden');
+        }
 
         fetch('/upload', {
             method: 'POST',
@@ -194,17 +227,26 @@ document.addEventListener('DOMContentLoaded', function() {
         })
         .then(response => response.json())
         .then(data => {
-            if (data.task_id) {
-                checkStatus(data.task_id);
+            if (data) {              
             } else {
-                displayStatus('Fehler beim Hochladen: ' + data.error, 'bg-red-600');
+                console.error('Fehler beim Hochladen:', data.error);
+                alert('Fehler beim Hochladen: ' + data.error);
+                // Button wieder aktivieren und Spinner ausblenden
+                uploadButton.disabled = false;
+                if (uploadSpinner) {
+                    uploadSpinner.classList.add('hidden');
+                }
             }
         })
-        .catch(error => displayStatus('Fehler: ' + error, 'bg-red-600'));
-
-        if (this.id === 'modalUploadForm') {
-            closeUploadModal();
-        }
+        .catch(error => {
+            console.error('Fehler:', error);
+            alert('Fehler: ' + error);
+            // Button wieder aktivieren und Spinner ausblenden
+            uploadButton.disabled = false;
+            if (uploadSpinner) {
+                uploadSpinner.classList.add('hidden');
+            }
+        });
     }
 
     function updateFileList(input, fileListElement) {
@@ -214,55 +256,6 @@ document.addEventListener('DOMContentLoaded', function() {
             item.textContent = file.name;
             fileListElement.appendChild(item);
         });
-    }
-
-    function checkStatus(taskId) {
-        fetch(`/status/${taskId}`)
-        .then(response => response.json())
-        .then(data => {
-            let statusText = '';
-            let statusColor = 'bg-blue-600';
-            let percentage = 0;
-
-            switch (data.state) {
-                case 'PENDING':
-                    statusText = 'Verarbeitung wird gestartet...';
-                    percentage = 5;
-                    break;
-                case 'PROGRESS':
-                    statusText = data.status || 'Verarbeitung läuft...';
-                    percentage = data.percentage || 50;
-                    break;
-                case 'SUCCESS':
-                    statusText = 'Verarbeitung abgeschlossen';
-                    statusColor = 'bg-green-600';
-                    percentage = 100;
-                    refreshDatasetList();
-                    resetForm();
-                    setTimeout(hideStatus, 3000);
-                    break;
-                case 'FAILURE':
-                    statusText = 'Fehler bei der Verarbeitung';
-                    statusColor = 'bg-red-600';
-                    percentage = 100;
-                    setTimeout(hideStatus, 5000);
-                    break;
-                default:
-                    hideStatus();
-                    break;
-            }
-
-            displayStatus(statusText, statusColor, percentage, data.error_message);
-            if (data.state !== 'SUCCESS' && data.state !== 'FAILURE') {
-                setTimeout(() => checkStatus(taskId), 1000);
-            }
-        })
-        .catch(error => displayStatus('Fehler beim Abrufen des Task-Status', 'bg-red-600'));
-    }
-
-    function resetForm() {
-        mainForm.reset();
-        mainFileList.innerHTML = '';
     }
 
     function filterDatasets() {
@@ -276,23 +269,77 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    function displayStatus(text, color, percentage = 0, error = '') {
-        const statusTextElement = document.getElementById('statusText');
-        const statusBarElement = document.getElementById('statusBar');
-        const statusPercentageElement = document.getElementById('statusPercentage');
-        const statusDetailsElement = document.getElementById('statusDetails');
-
-        statusElement.classList.remove('hidden');
-        statusTextElement.textContent = text;
-        statusBarElement.style.width = `${percentage}%`;
-        statusBarElement.className = `${color} h-2.5 rounded-full transition-all duration-500 ease-out`;
-        statusPercentageElement.textContent = `${percentage}%`;
-        statusDetailsElement.textContent = error ? `Fehler: ${error}` : '';
+    function resetForm() {
+        mainForm.reset();
+        mainFileList.innerHTML = '';
     }
 
-    function hideStatus() {
-        statusElement.classList.add('hidden');
+    function refreshDatasetList() {
+        fetch('/get_datasets')
+        .then(response => response.json())
+        .then(updateDatasetList)
+        .catch(error => console.error('Error refreshing dataset list:', error));
     }
+
+
+    socket.on('task_status', function(data) {   
+                   
+        if (data.status === 'process_pdfs_started') {
+            localStorage.setItem('create_reports', data.create_reports);
+            progressContainer.classList.remove('hidden');
+            console.log(data.create_reports);
+            console.log(localStorage.getItem('create_reports'));
+            animateProgressBar(15);           
+        } 
+        else if (data.status === 'process_pdfs_completed') {
+            animateProgressBar(35);
+        }
+        else if (data.status === 'combine_extractions_completed') {
+            animateProgressBar(50);
+        }     
+        else if (data.status === 'process_record_completed' && localStorage.getItem('create_reports') === "true") {
+            animateProgressBar(75);
+            refreshDatasetList();
+            uploadButton.disabled = false;
+            if (uploadSpinner) {
+                uploadSpinner.classList.add('hidden');
+            }
+            resetForm();
+        }
+        else if (data.status === 'process_record_completed' && localStorage.getItem('create_reports') === "false") {
+            animateProgressBar(100);
+            setTimeout(function() {
+                progressContainer.classList.add('hidden');
+                progressBar.style.width = '0%';
+            }, 1000);
+            uploadButton.disabled = false;
+            if (uploadSpinner) {
+                uploadSpinner.classList.add('hidden');
+            }
+            localStorage.removeItem('create_reports');
+            refreshDatasetList();
+            resetForm();
+        }
+        else if (data.status === 'create_report_completed') {
+            animateProgressBar(100);
+            setTimeout(function() {
+                progressContainer.classList.add('hidden');
+                progressBar.style.width = '0%';
+            }, 1000);
+            localStorage.removeItem('create_reports');
+        }
+        else if (data.status === 'error') {
+            console.error('Fehler:', data.message);
+            alert('Fehler: ' + data.message);
+            localStorage.removeItem('create_reports');
+        }
+    });
+
+    function animateProgressBar(targetWidth) {
+        progressBar.style.transition = 'width 0.5s ease-in-out';
+        progressBar.style.width = targetWidth + '%';
+    }
+
 });
 
 function openModal(recordId) {
@@ -304,9 +351,10 @@ function openModal(recordId) {
         });
 
         document.getElementById('modalContent').innerHTML = `
-            <p><strong>Patient:</strong> ${data.patient_name || 'Unbekannt'}</p>
+            <p><strong>Datensatz:</strong> ${data.patient_name || 'Unbekannt'}</p>
             <p><strong>Letzte Aktualisierung:</strong> ${formattedTimestamp}</p>
             <p><strong>Zeitraum:</strong> ${data.medical_history_begin && data.medical_history_end ? `${data.medical_history_begin} - ${data.medical_history_end}` : 'Nicht angegeben'}</p>
+            <p><strong>Berichte erstellen:</strong> ${data.create_reports ? 'Nein' : 'Ja'}</p>
             <p><strong>Dateien:</strong></p>
             <ul>${data.filenames ? data.filenames.split(',').map(filename => `<li>${filename.trim()}</li>`).join('') : 'Keine Dateien'}</ul>
         `;
@@ -381,6 +429,7 @@ function updateDatasetList(data) {
             year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
         });
 
+
         li.innerHTML = `
             <div class="px-4 py-5 flex items-center justify-between">
                 <div class="flex items-center">
@@ -391,6 +440,7 @@ function updateDatasetList(data) {
                         <h3 class="text-lg font-medium text-gray-900">${record.patient_name || 'Unbekannter Patient'}</h3>
                         <p class="text-sm text-gray-500">ID: ${record.id}</p>
                         <p class="text-sm text-gray-500">${formattedTimestamp}</p>
+                        <p class="text-sm text-gray-500">${record.create_reports ? 'Berichte: Ja' : 'Berichte: Nein'}</p>
                     </div>
                 </div>
                 <div class="flex space-x-2">
@@ -416,5 +466,17 @@ function updateDatasetList(data) {
         datasetList.appendChild(li);
     });
 }
+
+
+
+function refreshDatasetList() {
+    fetch('/get_datasets')
+    .then(response => response.json())
+    .then(data => {
+        updateDatasetList(data);
+    })
+    .catch(error => console.error('Fehler beim Aktualisieren der Datensatzliste:', error));
+}
+
 </script>
 {% endblock %}
