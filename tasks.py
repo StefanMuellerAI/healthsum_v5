@@ -7,7 +7,7 @@ from extractors import PDFTextExtractor, OCRExtractor, AzureVisionExtractor, GPT
 from utils import count_tokens, find_patient_info
 from datetime import datetime
 import traceback
-from models import db, HealthRecord, Report
+from models import db, HealthRecord, Report, ReportTemplate
 from extractors import openai_client
 from reports import generate_report
 from upload_tracker import log_upload
@@ -301,30 +301,33 @@ def create_report(self, data, original_task_id=None):
         if not health_record:
             return f"HealthRecord mit ID {health_record_id} nicht gefunden."
 
-        # Verzeichnis mit den Prompt-Dateien
-        prompts_dir = 'prompts'
+        # Holen aller ReportTemplates aus der Datenbank
+        report_templates = ReportTemplate.query.all()
 
-        total_files = len([f for f in os.listdir(prompts_dir) if f.endswith('.md')])
-        for i, filename in enumerate(os.listdir(prompts_dir)):
-            if filename.endswith('.md'):
-                
-                # Lese den Inhalt der Prompt-Datei
-                with open(os.path.join(prompts_dir, filename), 'r') as file:
-                    prompt_template = file.read()
+        for template in report_templates:
+            # Generiere den Report
+            report_content = generate_report(
+                template_name=template.template_name,
+                output_format=template.output_format,
+                example_structure=template.example_structure,
+                system_prompt=template.system_prompt,
+                prompt=template.prompt,
+                health_record_text=health_record.text,
+                health_record_token_count=health_record.token_count,
+                health_record_begin=health_record.medical_history_begin,
+                health_record_end=health_record.medical_history_end
+            )
 
-                # Generiere den Report
-                report_content = generate_report(prompt_template, health_record.text, health_record.token_count, health_record.medical_history_begin, health_record.medical_history_end)
+            # Erstelle einen neuen Report
+            report = Report(
+                health_record_id=health_record.id,
+                content=report_content,
+                report_type=template.template_name
+            )
 
-                # Erstelle einen neuen Report
-                report = Report(
-                    health_record_id=health_record.id,
-                    content=report_content,
-                    report_type=os.path.splitext(filename)[0]  # Verwende den Dateinamen ohne Erweiterung als report_type
-                )
-
-                # Speichere den Report in der Datenbank
-                db.session.add(report)
-                db.session.commit()
+            # Speichere den Report in der Datenbank
+            db.session.add(report)
+            db.session.commit()
 
         # Log the upload information
         end_time = datetime.utcnow()

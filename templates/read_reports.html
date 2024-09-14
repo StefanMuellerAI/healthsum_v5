@@ -1,115 +1,105 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="container max-w-full mx-auto px-4 py-8">
-    <h2 class="text-3xl font-bold mb-8">Erstellte Berichte</h2>
-    <div class="mb-8">
-        <input type="text" id="searchInput" placeholder="Suche nach Patientenname" class="w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500" aria-label="Patientensuche">
-    </div>
-    <div id="reportList" class="space-y-8">
-        {% for year, year_patients in patients|groupby(attribute='last_update.year')|reverse %}
-        <div class="year-group mb-10">
-            <h3 class="text-2xl font-semibold mb-6 bg-gray-100 px-4 py-2 rounded-lg">{{ year }}</h3>
-            <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-                {% for patient in year_patients %}
-                <div class="patient-card bg-white shadow-lg rounded-lg overflow-hidden" data-patient-id="{{ patient.id }}">
-                    <button class="patient-toggle w-full bg-blue-600 text-white px-6 py-4 flex justify-between items-center cursor-pointer focus:outline-none focus:ring-2 focus:ring-blue-500 hover:bg-blue-700 transition duration-150" data-patient-id="{{ patient.id }}">
-                        <h3 class="text-lg font-semibold">{{ patient.name }} (ID: {{ patient.id }})</h3>
-                        <span class="text-sm bg-blue-500 px-2 py-1 rounded">{{ patient.last_update|format_timestamp }}</span>
-                    </button>
-                    <div class="patient-content p-6 hidden" data-patient-id="{{ patient.id }}">
-                        <div class="grid gap-4">
-                            {% for report in patient.reports %}
-                            <div class="report-card bg-gray-50 p-4 rounded-lg shadow">
-                                <h4 class="font-medium text-gray-800 mb-2">{{ report.type }}</h4>
-                                <p class="text-sm text-gray-600 mb-3">Erstellt: {{ report.created_at|format_timestamp }}</p>
-                                <div>
-                                    <a href="{{ url_for('view_report', report_id=report.id) }}" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded text-sm inline-block transition duration-150" aria-label="Bericht ansehen für {{ report.type }}">
-                                        Ansehen
-                                    </a>
+    <div class="flex flex-col lg:flex-row lg:space-x-8">
+        <!-- Left Column: List of Health Records -->
+        <div class="lg:w-1/3 mb-8 lg:mb-0">
+            <h2 class="text-3xl font-bold mb-2">Datensätze</h2>
+            <h3 class="text-xl mb-6">Wählen Sie einen Datensatz aus, um die zugehörigen Berichte anzuzeigen.</h3>
+            <div class="mb-6">
+                <input type="text" id="searchInput" placeholder="Suche nach Patientenname" class="w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div class="max-h-screen overflow-y-auto">
+                <ul id="recordList" class="space-y-6">
+                    {% for record in records %}
+                    <li class="bg-white shadow-lg overflow-hidden rounded-lg" data-id="{{ record.id }}" onclick="loadReports('{{ record.id }}')">
+                        <div class="flex items-center justify-between px-6 py-5 cursor-pointer">
+                            <div class="flex items-center flex-grow">
+                                <div class="flex-shrink-0 h-14 w-14 rounded-full bg-blue-100 flex items-center justify-center mr-4">
+                                    <span class="text-2xl font-bold text-blue-600">
+                                        {{ record.patient_name|first|upper if record.patient_name else '?' }}
+                                    </span>
+                                </div>
+                                <div class="flex-grow">
+                                    <h3 class="text-xl font-medium text-gray-900">
+                                        {{ record.patient_name or 'Unbekannter Patient' }}
+                                    </h3>
+                                    <p class="text-sm text-gray-500">
+                                        ID: {{ record.id }}
+                                    </p>
+                                    <p class="text-sm text-gray-500">
+                                        {{ record.timestamp|format_timestamp }}
+                                    </p>
                                 </div>
                             </div>
-                            {% endfor %}
                         </div>
-                    </div>
-                </div>
-                {% endfor %}
+                    </li>
+                    {% endfor %}
+                </ul>
             </div>
         </div>
-        {% endfor %}
+        <!-- Right Column: Reports for Selected Record -->
+        <div class="lg:w-2/3">
+            <h2 class="text-3xl font-bold mb-2">Berichte</h2>
+            <h3 class="text-xl mb-6">Wählen Sie einen Bericht aus, um ihn anzusehen.</h3>
+            <div id="reportsContainer" class="space-y-6">
+                <!-- Reports will be loaded here -->
+            </div>
+        </div>
     </div>
 </div>
 
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    const searchInput = document.getElementById('searchInput');
-
-    searchInput.addEventListener('input', filterPatients);
-
-    // Eventlistener für alle Toggle-Buttons hinzufügen
-    const toggles = document.querySelectorAll('.patient-toggle');
-    toggles.forEach(toggle => {
-        toggle.addEventListener('click', handleCardClick);
-    });
-
-    function filterPatients() {
-        const searchTerm = searchInput.value.toLowerCase();
-        const patientCards = document.querySelectorAll('.patient-card');
-
-        patientCards.forEach(card => {
-            const patientName = card.querySelector('h3').textContent.toLowerCase();
-            const patientIdMatch = card.querySelector('h3').textContent.match(/ID: (\d+)/);
-            const patientId = patientIdMatch ? patientIdMatch[1].toLowerCase() : '';
-            if (patientName.includes(searchTerm) || patientId.includes(searchTerm)) {
-                card.style.display = '';
-                card.closest('.year-group').style.display = '';
-            } else {
-                card.style.display = 'none';
-            }
-        });
-
-        // Verstecke leere Jahr-Gruppen
-        document.querySelectorAll('.year-group').forEach(group => {
-            const visibleCards = group.querySelectorAll('.patient-card:not([style*="display: none"])');
-            group.style.display = visibleCards.length ? '' : 'none';
-        });
-    }
-
-    function handleCardClick(event) {
-        const toggle = event.currentTarget;
-        const card = toggle.closest('.patient-card');
-        if (!card) return;
-
-        const patientId = card.getAttribute('data-patient-id');
-
-        // Selektiere den Inhalt innerhalb der angeklickten Karte
-        const content = card.querySelector('.patient-content');
-        if (!content) return;
-
-        // Öffne oder schließe die angeklickte Box
-        const isHidden = content.classList.contains('hidden');
-        content.classList.toggle('hidden');
-        toggle.setAttribute('aria-expanded', (!isHidden).toString());
-
-        // Schließe alle anderen geöffneten Boxen
-        const otherCards = document.querySelectorAll('.patient-card:not([data-patient-id="' + patientId + '"])');
-        otherCards.forEach(otherCard => {
-            const otherContent = otherCard.querySelector('.patient-content');
-            if (otherContent && !otherContent.classList.contains('hidden')) {
-                otherContent.classList.add('hidden');
-                const otherToggle = otherCard.querySelector('.patient-toggle');
-                if (otherToggle) {
-                    otherToggle.setAttribute('aria-expanded', 'false');
-                }
-            }
-        });
-
-        // Smooth Scroll zur angeklickten Karte
-        if (!isHidden) {
-            setTimeout(() => {
-                card.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            }, 100);
+function loadReports(recordId) {
+    fetch(`/get_reports/${recordId}`)
+    .then(response => response.json())
+    .then(data => {
+        const reportsContainer = document.getElementById('reportsContainer');
+        reportsContainer.innerHTML = '';
+        
+        if (data.reports.length > 0) {
+            data.reports.forEach(report => {
+                const reportCard = document.createElement('div');
+                reportCard.className = 'bg-white shadow-lg rounded-lg overflow-hidden';
+                reportCard.innerHTML = `
+                    <div class="px-6 py-5 flex items-center justify-between">
+                        <div>
+                            <h3 class="text-xl font-semibold mb-1">${report.report_type}</h3>
+                            <p class="text-sm text-gray-500 mb-2">Erstellt am: ${new Date(report.created_at).toLocaleDateString('de-DE')}</p>
+                        </div>
+                        <div>
+                            <a href="/report/${report.id}" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg transition duration-300" aria-label="Bericht ansehen">
+                                Ansehen
+                            </a>
+                        </div>
+                    </div>
+                `;
+                reportsContainer.appendChild(reportCard);
+            });
+        } else {
+            reportsContainer.innerHTML = '<p>Für diesen Datensatz sind keine Berichte verfügbar.</p>';
         }
-    }
+    })
+    .catch(error => {
+        console.error('Fehler beim Laden der Berichte:', error);
+    });
+}
+
+// Suchfunktion für die Liste der Datensätze
+document.getElementById('searchInput').addEventListener('input', function() {
+    const searchTerm = this.value.toLowerCase();
+    const records = document.querySelectorAll('#recordList li');
+    
+    records.forEach(record => {
+        const patientName = record.querySelector('h3').textContent.toLowerCase();
+        const patientId = record.getAttribute('data-id').toLowerCase();
+        
+        if (patientName.includes(searchTerm) || patientId.includes(searchTerm)) {
+            record.style.display = '';
+        } else {
+            record.style.display = 'none';
+        }
+    });
 });
 </script>
 {% endblock %}

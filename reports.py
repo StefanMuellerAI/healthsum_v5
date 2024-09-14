@@ -29,20 +29,17 @@ def clean_json_response(response_content):
     return response_content
 
 # Funktion für die Erstellung des Berichts mit GPT-4
-def generate_report_gpt4(prompt_template, health_record_text, year):
+def generate_report_gpt4(template_name, output_format, example_structure, system_prompt, prompt, health_record_text, year):
     """
     Generiert einen Gesundheitsbericht für ein bestimmtes Jahr mit GPT-4.
     """
     logger.info(f"Erstelle Bericht für Jahr {year} mit GPT-4.")
     
     # Extrahiere den Ausgabetyp aus der ersten Zeile des Prompts
-    output_type = prompt_template.split('\n')[0].strip().lower()
-
-    # Entferne die erste Zeile aus dem Prompt
-    actual_prompt = '\n'.join(prompt_template.split('\n')[1:]).strip()
+    output_type = output_format 
 
     # Passe den Gesundheitstext für das Jahr an
-    year_focussed_actual_prompt = f"{actual_prompt}\n\nFokussiere dich nur auf das Jahr {year}:"
+    year_focussed_actual_prompt = f"{system_prompt}\n\n{prompt}\n\n{output_format}\n\n{example_structure}\nFokussiere dich nur auf das Jahr {year}:"
 
     # Basis-Parameter für die API-Anfrage
     api_params = {
@@ -52,7 +49,8 @@ def generate_report_gpt4(prompt_template, health_record_text, year):
             {"role": "user", "content": f"Das ist deine Datenbasis: {health_record_text}"}
         ],
         "temperature": 0.7,
-        "max_tokens": 16000
+        "max_tokens": 16000,
+        "response_format": { "type": "json_object" }
     }
 
     # Generiere den Report mit GPT-4
@@ -95,14 +93,14 @@ def generate_report_gpt4(prompt_template, health_record_text, year):
         return None
 
 # Funktion für die Erstellung des Berichts mit Google Gemini
-def generate_report_gemini(prompt_template, health_record_text, year):
+def generate_report_gemini(template_name, output_format, example_structure, system_prompt, prompt, health_record_text, year):
     """
     Generiert einen Gesundheitsbericht für ein bestimmtes Jahr mit Google Gemini.
     """
     logger.info(f"Erstelle Bericht für Jahr {year} mit Google Gemini.")
     
     # Bereite den Prompt vor
-    year_focussed_actual_prompt = f"{prompt_template}\n\nFokussiere dich nur auf das Jahr {year}:"
+    year_focussed_actual_prompt = f"{system_prompt}\n\n{prompt}\n\n{output_format}\n\n{example_structure}\nFokussiere dich nur auf das Jahr {year}:"
     
     try:
         # API-Aufruf mit Google Gemini
@@ -146,8 +144,13 @@ def generate_report_gemini(prompt_template, health_record_text, year):
         logger.error(f"Fehler bei der Verarbeitung mit Google Gemini: {e}")
         return None
 
+
+
+
+
+
 # Hauptfunktion zur Generierung des Berichts
-def generate_report(prompt_template, health_record_text, health_record_token_count, health_record_begin, health_record_end):
+def generate_report(template_name, output_format, example_structure, system_prompt, prompt, health_record_text, health_record_token_count, health_record_begin, health_record_end):
     """
     Generiert einen kombinierten Gesundheitsbericht für den angegebenen Zeitraum (mehrere Jahre).
     Nutzt GPT-4 oder Gemini abhängig von der Tokenanzahl.
@@ -174,9 +177,9 @@ def generate_report(prompt_template, health_record_text, health_record_token_cou
         try:
             # Verwende GPT-4 oder Gemini basierend auf der Tokenanzahl
             if use_gemini:
-                yearly_report = generate_report_gemini(prompt_template, health_record_text, year)
+                yearly_report = generate_report_gemini(template_name, output_format, example_structure, system_prompt, prompt, health_record_text, year)
             else:
-                yearly_report = generate_report_gpt4(prompt_template, health_record_text, year)
+                yearly_report = generate_report_gpt4(template_name, output_format, example_structure, system_prompt, prompt, health_record_text, year)
 
             # Wenn der Bericht erfolgreich ist, füge ihn zur Liste hinzu
             if yearly_report is not None:

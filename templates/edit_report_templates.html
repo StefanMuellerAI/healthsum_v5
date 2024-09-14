@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container max-w-full mx-auto px-4 py-8">
+    <div class="flex flex-col lg:flex-row lg:space-x-8">
+        <!-- Linke Spalte: Liste der ReportTemplates -->
+        <div class="lg:w-1/3 mb-8 lg:mb-0">
+            <h2 class="text-3xl font-bold mb-2">Report Templates</h2>
+            <h3 class="text-xl mb-6">Hier finden Sie alle verfügbaren Report Templates.</h3>
+            <div class="max-h-screen overflow-y-auto">
+                <ul id="templateList" class="space-y-6">
+                    {% for template in templates %}
+                    <li class="bg-white shadow-lg overflow-hidden rounded-lg" data-id="{{ template.id }}">
+                        <div class="flex items-center justify-between px-6 py-5">
+                            <div class="flex items-center flex-grow cursor-pointer" onclick="loadTemplate('{{ template.id }}')">
+                                <div class="flex-shrink-0 h-14 w-14 rounded-full bg-blue-100 flex items-center justify-center mr-4">
+                                    <span class="text-2xl font-bold text-blue-600">
+                                        {{ template.template_name|first|upper if template.template_name else '?' }}
+                                    </span>
+                                </div>
+                                <div class="flex-grow">
+                                    <h3 class="text-xl font-medium text-gray-900">
+                                        {{ template.template_name or 'Unbekanntes Template' }}
+                                    </h3>
+                                    <p class="text-sm text-gray-500">
+                                        ID: {{ template.id }}
+                                    </p>
+                                    <p class="text-sm text-gray-500">
+                                        Erstellt am: {{ template.created_at|format_timestamp }}
+                                    </p>
+                                    {% if template.last_updated %}
+                                    <p class="text-sm text-gray-500">
+                                        Letzte Aktualisierung: {{ template.last_updated|format_timestamp }}
+                                    </p>
+                                    {% endif %}
+                                    <p class="text-sm text-gray-500">
+                                        Output Format: {{ template.output_format }}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+        <!-- Rechte Spalte: Formular zum Bearbeiten des ausgewählten Templates -->
+        <div class="lg:w-2/3">
+            <h2 class="text-3xl font-bold mb-2">Template bearbeiten</h2>
+            <h3 class="text-xl mb-6">Hier können Sie das ausgewählte Report Template bearbeiten.</h3>
+            <form id="templateForm" class="space-y-6 hidden">
+                <input type="hidden" id="templateId" name="templateId">
+
+                <div>
+                    <label for="templateName" class="block text-lg font-medium text-gray-700">
+                        Template Name
+                    </label>
+                    <p class="text-sm text-gray-500">
+                        Der Name des Templates. Dieses Feld bestimmt den eindeutigen Namen des Report Templates.
+                    </p>
+                    <input type="text" id="templateName" name="templateName" required class="mt-1 block w-full px-4 py-3 border border-gray-300 rounded-lg">
+                </div>
+
+                <div>
+                    <label for="outputFormat" class="block text-lg font-medium text-gray-700">
+                        Output Format
+                    </label>
+                    <p class="text-sm text-gray-500">
+                        Das gewünschte Ausgabeformat. Wählen Sie zwischen 'JSON' und 'TEXT'.
+                    </p>
+                    <select id="outputFormat" name="outputFormat" required class="mt-1 block w-full px-4 py-3 border border-gray-300 rounded-lg">
+                        <option value="JSON">JSON</option>
+                        <option value="TEXT">TEXT</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label for="exampleStructure" class="block text-lg font-medium text-gray-700">
+                        Example Structure
+                    </label>
+                    <p class="text-sm text-gray-500">
+                        Ein Beispiel für die erwartete Struktur des Outputs. Bei 'JSON' sollte hier ein gültiges JSON-Objekt angegeben werden.
+                    </p>
+                    <textarea id="exampleStructure" name="exampleStructure" rows="4" class="mt-1 block w-full px-4 py-3 border border-gray-300 rounded-lg"></textarea>
+                    <p id="jsonValidationMessage" class="mt-1 text-sm"></p>
+                </div>
+
+                <div>
+                    <label for="systemPrompt" class="block text-lg font-medium text-gray-700">
+                        System Prompt
+                    </label>
+                    <p class="text-sm text-gray-500">
+                        Das System-Prompt, das dem KI-Modell gegeben wird, um das Verhalten zu steuern.
+                    </p>
+                    <textarea id="systemPrompt" name="systemPrompt" rows="4" class="mt-1 block w-full px-4 py-3 border border-gray-300 rounded-lg"></textarea>
+                </div>
+
+                <div>
+                    <label for="prompt" class="block text-lg font-medium text-gray-700">
+                        Prompt
+                    </label>
+                    <p class="text-sm text-gray-500">
+                        Der eigentliche Prompt, der dem KI-Modell übergeben wird.
+                    </p>
+                    <textarea id="prompt" name="prompt" rows="4" class="mt-1 block w-full px-4 py-3 border border-gray-300 rounded-lg"></textarea>
+                </div>
+
+                <button type="submit" id="saveButton" class="w-full px-6 py-3 text-lg font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700">
+                    Speichern
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+function loadTemplate(templateId) {
+    fetch(`/get_template/${templateId}`)
+    .then(response => response.json())
+    .then(data => {
+        document.getElementById('templateForm').classList.remove('hidden');
+        document.getElementById('templateId').value = data.id;
+        document.getElementById('templateName').value = data.template_name;
+        document.getElementById('outputFormat').value = data.output_format;
+        document.getElementById('exampleStructure').value = data.example_structure;
+        document.getElementById('systemPrompt').value = data.system_prompt;
+        document.getElementById('prompt').value = data.prompt;
+
+        // Initiale JSON-Validierung beim Laden des Templates
+        validateJson();
+    })
+    .catch(error => console.error('Fehler beim Laden des Templates:', error));
+}
+
+// JSON-Validierung
+function validateJson() {
+    const outputFormat = document.getElementById('outputFormat').value;
+    const exampleStructure = document.getElementById('exampleStructure').value;
+    const validationMessage = document.getElementById('jsonValidationMessage');
+    const saveButton = document.getElementById('saveButton');
+
+    if (outputFormat === 'JSON') {
+        try {
+            JSON.parse(exampleStructure);
+            validationMessage.textContent = 'Das JSON ist valide.';
+            validationMessage.classList.remove('text-red-500');
+            validationMessage.classList.add('text-green-500');
+            saveButton.disabled = false; // Speichern-Button aktivieren
+            saveButton.classList.remove('bg-gray-400', 'cursor-not-allowed');
+            saveButton.classList.add('bg-blue-600', 'hover:bg-blue-700');
+        } catch (e) {
+            validationMessage.textContent = 'Das JSON ist nicht valide.';
+            validationMessage.classList.remove('text-green-500');
+            validationMessage.classList.add('text-red-500');
+            saveButton.disabled = true; // Speichern-Button deaktivieren
+            saveButton.classList.remove('bg-blue-600', 'hover:bg-blue-700');
+            saveButton.classList.add('bg-gray-400', 'cursor-not-allowed');
+        }
+    } else {
+        validationMessage.textContent = '';
+        saveButton.disabled = false; // Speichern-Button aktivieren
+        saveButton.classList.remove('bg-gray-400', 'cursor-not-allowed');
+        saveButton.classList.add('bg-blue-600', 'hover:bg-blue-700');
+    }
+}
+
+// Ereignislistener für Änderungen am Output Format und Example Structure
+document.getElementById('outputFormat').addEventListener('change', validateJson);
+document.getElementById('exampleStructure').addEventListener('input', validateJson);
+
+document.getElementById('templateForm').addEventListener('submit', function(event) {
+    event.preventDefault();
+
+    const formData = {
+        id: document.getElementById('templateId').value,
+        template_name: document.getElementById('templateName').value,
+        output_format: document.getElementById('outputFormat').value,
+        example_structure: document.getElementById('exampleStructure').value,
+        system_prompt: document.getElementById('systemPrompt').value,
+        prompt: document.getElementById('prompt').value
+    };
+
+    fetch('/update_template', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(formData)
+    })
+    .then(response => {
+        if (response.ok) {
+            alert('Template erfolgreich gespeichert.');
+        } else {
+            alert('Fehler beim Speichern des Templates.');
+        }
+    })
+    .catch(error => console.error('Fehler beim Speichern des Templates:', error));
+});
+</script>
+{% endblock %}

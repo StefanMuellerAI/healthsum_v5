@@ -44,6 +44,10 @@
                                 Zu den Berichten
                             </a>
                             {% endif %}
+                            <!-- Neuer Button zum Template-Editor -->
+                            <a href="{{ url_for('edit_report_templates') }}" class="px-3 py-2 rounded-md text-sm font-medium text-white bg-green-600 hover:bg-green-700 flex items-center">
+                                Template-Editor
+                            </a>
                             <a href="{{ url_for('logout') }}" class="px-3 py-2 rounded-md text-sm font-medium text-white bg-red-600 hover:bg-red-700 flex items-center">
                                 <!-- Icon -->
                                 Logout
@@ -59,7 +63,7 @@
             </div>
         </div>
     </nav>
-    <div id="progress-container" class="w-full bg-gray-200 sticky top-16 h-4 mb-4 hidden">
+    <div id="progress-container" class="w-full bg-gray-200 sticky top-16 h-5 mb-4 hidden">
         <div id="progress-bar" class="h-1 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 bg-[length:200%_200%] animate-gradient-x" style="width: 0%;"></div>
     </div>
   

@@ -3,11 +3,11 @@ eventlet.monkey_patch()
 
 import os
 import logging
-from flask import Flask, render_template, request, jsonify, redirect, url_for, flash
+from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, abort
 from werkzeug.utils import secure_filename
 from flask_socketio import SocketIO, emit, join_room
 from celery_config import create_celery_app
-from models import db, HealthRecord, Report, User
+from models import db, HealthRecord, Report, User, ReportTemplate
 from celery import chain
 from tasks import process_pdfs, create_report, process_record
 from datetime import datetime
@@ -16,6 +16,9 @@ from werkzeug.security import check_password_hash
 from celery.app.control import Inspect
 from extensions import socketio
 from celery.result import AsyncResult
+
+#Todo:
+# - Userid beim create, read, edit und delete von DAtensätzen und Berichten hinzufügen. 
 
 
 # Hilfsfunktion für das Formatieren des Timestamps
@@ -157,25 +160,24 @@ def get_record(record_id):
 @app.route('/read_reports')
 @login_required
 def read_reports():
-    patients = []
-    records = HealthRecord.query.filter_by(create_reports=True).order_by(HealthRecord.timestamp.desc()).all()
-    for record in records:
-        reports = Report.query.filter_by(health_record_id=record.id).all()
-        if reports:
-            patient = {
-                'id': record.id,
-                'name': record.patient_name,
-                'last_update': record.timestamp,  # Behalten Sie das datetime-Objekt
-                'reports': []
-            }
-            for report in reports:
-                patient['reports'].append({
-                    'id': report.id,
-                    'type': report.report_type,
-                    'created_at': report.created_at  # Behalten Sie das datetime-Objekt
-                })
-            patients.append(patient)
-    return render_template('read_reports.html', patients=patients)
+    records = HealthRecord.query.order_by(HealthRecord.timestamp.desc()).all()
+    return render_template('read_reports.html', records=records)
+
+@app.route('/get_reports/<int:record_id>')
+@login_required
+def get_reports(record_id):
+    record = HealthRecord.query.get_or_404(record_id)
+    reports = Report.query.filter_by(health_record_id=record_id).order_by(Report.created_at.desc()).all()
+    
+    reports_data = []
+    for report in reports:
+        reports_data.append({
+            'id': report.id,
+            'report_type': report.report_type,
+            'created_at': report.created_at.isoformat()
+        })
+    
+    return jsonify({'reports': reports_data})
 
 
 @app.route('/impressum')
@@ -281,6 +283,47 @@ def on_join_task_room(data):
         join_room(task_id)
         print(f'Client joined room for task_id: {task_id}')
 
+@app.route('/edit_report_templates')
+@login_required
+def edit_report_templates():
+    templates = ReportTemplate.query.order_by(ReportTemplate.template_name).all()
+    return render_template('edit_report_templates.html', templates=templates)
+
+@app.route('/get_template/<int:template_id>')
+@login_required
+def get_template(template_id):
+    template = ReportTemplate.query.get_or_404(template_id)
+    return jsonify({
+        'id': template.id,
+        'template_name': template.template_name,
+        'output_format': template.output_format,
+        'example_structure': template.example_structure,
+        'system_prompt': template.system_prompt,
+        'prompt': template.prompt,
+    })
+
+@app.route('/update_template', methods=['POST'])
+@login_required
+def update_template():
+    data = request.get_json()
+    if not data or 'id' not in data:
+        return jsonify({'error': 'Ungültige Daten'}), 400
+
+    template_id = data['id']
+    template = ReportTemplate.query.get_or_404(template_id)
+    template.template_name = data.get('template_name', template.template_name)
+    template.output_format = data.get('output_format', template.output_format)
+    template.example_structure = data.get('example_structure', template.example_structure)
+    template.system_prompt = data.get('system_prompt', template.system_prompt)
+    template.prompt = data.get('prompt', template.prompt)
+    template.last_updated = datetime.utcnow()
+
+    try:
+        db.session.commit()
+        return jsonify({'message': 'Template erfolgreich aktualisiert'}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
 
 
 if __name__ == '__main__':
