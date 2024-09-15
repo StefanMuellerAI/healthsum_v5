@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container mx-auto px-4 max-w-full">
+    <h2 class="text-3xl font-bold mb-6">Report Details</h2>
+    <div class="bg-white shadow-lg rounded-lg overflow-hidden">
+        <div class="bg-blue-600 text-white px-6 py-4">
+            <h3 class="text-xl font-semibold">{{ report.type }}</h3>
+        </div>
+        <div class="p-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <p><strong>Erstellt am:</strong> {{ report.created_at }}</p>
+                <p><strong>Datensatz:</strong> {{ report.patient_name }} (ID: {{ report.patient_id }})</p>
+            </div>
+            
+            <!-- DataTable für den Report-Inhalt -->
+            <div class="overflow-x-auto">
+                <table id="reportTable" class="display w-full"></table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- DataTables CSS -->
+<link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.10.24/css/jquery.dataTables.css">
+<link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/buttons/1.7.0/css/buttons.dataTables.min.css">
+
+<!-- jQuery -->
+<script type="text/javascript" charset="utf8" src="https://code.jquery.com/jquery-3.5.1.js"></script>
+
+<!-- DataTables -->
+<script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.10.24/js/jquery.dataTables.js"></script>
+<script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/buttons/1.7.0/js/dataTables.buttons.min.js"></script>
+<script type="text/javascript" charset="utf8" src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.1.3/jszip.min.js"></script>
+<script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/buttons/1.7.0/js/buttons.html5.min.js"></script>
+
+<script>
+$(document).ready(function() {
+    var reportData;
+    try {
+        reportData = JSON.parse('{{ report.content | tojson | safe }}');
+    } catch (e) {
+        console.error("Fehler beim Parsen der Daten:", e);
+        reportData = {{ report.content | safe }};
+    }
+    if (!Array.isArray(reportData) && reportData.Behandlungen) {
+        reportData = reportData.Behandlungen;
+    }
+    
+    if (reportData && reportData.length > 0) {
+        var columns = Object.keys(reportData[0]).map(function(key) {
+            if (key === 'Datum') {
+                return {
+                    title: key,
+                    data: key,
+                    render: function(data, type, row) {
+                        if (type === 'sort' || type === 'type') {
+                            return data;
+                        }
+                        var date = new Date(data);
+                        var day = date.getDate().toString().padStart(2, '0');
+                        var month = (date.getMonth() + 1).toString().padStart(2, '0');
+                        var year = date.getFullYear();
+                        return day + '.' + month + '.' + year;
+                    }
+                };
+            }
+            return { title: key, data: key };
+        });
+
+        $('#reportTable').DataTable({
+            data: reportData,
+            columns: columns,
+            order: [[0, 'desc']],
+            paging: false,
+            info: false,
+            scrollX: true,
+            language: {
+                url: '//cdn.datatables.net/plug-ins/1.10.24/i18n/German.json'
+            },
+            dom: 'Bfrt',
+            buttons: [
+                {
+                    extend: 'excel',
+                    text: 'Als Excel herunterladen',
+                    className: 'bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded mt-4',
+                    filename: 'Report_{{ report.patient_name }}_{{ report.created_at }}',
+                    title: 'Report für {{ report.patient_name }} vom {{ report.created_at }}'
+                }
+            ]
+        });
+    } else {
+        $('#reportTable').html('<p class="text-lg text-gray-600">Keine Daten verfügbar oder Fehler beim Laden.</p>');
+    }
+});
+</script>
+{% endblock %}

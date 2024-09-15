@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>Verarbeitung abgeschlossen</title>
+    <style>
+        /* Einfache CSS-Stile für die E-Mail */
+        body {
+            font-family: Arial, sans-serif;
+            color: #333333;
+        }
+        h1 {
+            color: #2F5496;
+        }
+        .content {
+            margin: 20px;
+        }
+        .footer {
+            margin-top: 30px;
+            font-size: 12px;
+            color: #777777;
+        }
+    </style>
+</head>
+<body>
+    <div class="content">
+        <h1>Verarbeitung abgeschlossen</h1>
+        <p>Hallo {{ user.vorname }} {{ user.nachname }},</p>
+        <p>Ihr Datensatz mit der ID {{ health_record.id }} wurde erfolgreich verarbeitet.</p>
+        {% if duration %}
+        <p>Die Verarbeitung dauerte {{ duration }} (hh:mm:ss).</p>
+        {% endif %}
+        <p>Sie können nun auf Ihre Daten zugreifen:</p>
+        <p><a href="https://healthsum.de/">Zum Dashboard</a></p>
+        <p>Mit freundlichen Grüßen,<br>
+        Ihr Healthsum Team</p>
+    </div>
+    <div class="footer">
+        <p>Dies ist eine automatisch generierte E-Mail. Bitte antworten Sie nicht auf diese Nachricht.</p>
+    </div>
+</body>
+</html>
