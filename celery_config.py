@@ -30,6 +30,7 @@ CELERY_QUEUES = {
     'extraction': {},
     'refinement': {},
     'summary': {},
+    'regenerate_report': {},
 }
 
 # Routing-Einstellungen
@@ -42,6 +43,8 @@ CELERY_ROUTES = {
     'tasks.combine_extractions': {'queue': 'extraction'},
     'tasks.process_record': {'queue': 'refinement'},
     'tasks.create_report': {'queue': 'summary'},
+    'tasks.regenerate_report_task': {'queue': 'regenerate_report'},
+    'tasks.generate_single_report': {'queue': 'regenerate_report'},
 }
 
 # Beat-Schedule-Einstellungen

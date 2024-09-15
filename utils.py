@@ -8,6 +8,7 @@ from extractors import openai_client
 import google.generativeai as genai
 from tenacity import retry, wait_random_exponential, stop_after_attempt
 from datetime import datetime
+from models import db, TaskMonitor
 
 openai_model = os.environ["OPENAI_MODEL"]
 genai.configure(api_key=os.environ["GEMINI_API_KEY"])
@@ -148,3 +149,33 @@ def repair_json(response_text):
         print(f"Fehler nach Reparaturversuch: {e}")
         print(f"Fehlerhafter Text: {response_text}")
         return None
+
+def create_task_monitor(health_record_id):
+    task_monitor = TaskMonitor(
+        health_record_id=health_record_id,
+        created_at=datetime.utcnow(),
+        notification_sent=False  # Standardmäßig auf False gesetzt
+    )
+    db.session.add(task_monitor)
+    db.session.commit()
+    return task_monitor
+
+def update_task_monitor(task_monitor_id, start_date=None, end_date=None, token_count=None, notification_sent=None):
+    task_monitor = TaskMonitor.query.get(task_monitor_id)
+    if not task_monitor:
+        return None
+
+    if start_date is not None:
+        task_monitor.start_date = start_date
+    if end_date is not None:
+        task_monitor.end_date = end_date
+    if token_count is not None:
+        task_monitor.health_record_token_count = token_count
+    if notification_sent is not None:
+        task_monitor.notification_sent = notification_sent
+    
+    db.session.commit()
+    return task_monitor
+
+def mark_notification_sent(task_monitor_id):
+    return update_task_monitor(task_monitor_id, notification_sent=True)

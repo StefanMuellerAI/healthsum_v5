@@ -104,9 +104,27 @@
                     <textarea id="prompt" name="prompt" rows="4" class="mt-1 block w-full px-4 py-3 border border-gray-300 rounded-lg"></textarea>
                 </div>
 
-                <button type="submit" id="saveButton" class="w-full px-6 py-3 text-lg font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700">
-                    Speichern
-                </button>
+                <div id="summarizerField" class="hidden">
+                    <label for="summarizer" class="block text-lg font-medium text-gray-700">
+                        Summarizer
+                    </label>
+                    <p class="text-sm text-gray-500">
+                        Aktivieren Sie diese Option, um am Ende der jährlichen Berichte eine Zusammenfassung über alle Jahre hinweg zu erhalten.
+                    </p>
+                    <input type="checkbox" id="summarizer" name="summarizer" class="mt-1">
+                </div>
+
+                <div class="flex space-x-4">
+                    <button type="button" id="deleteButton" class="w-1/3 px-6 py-3 text-lg font-medium text-white bg-red-600 rounded-lg hover:bg-red-700">
+                        Report löschen
+                    </button>
+                    <button type="button" id="saveAsNewButton" class="w-1/3 px-6 py-3 text-lg font-medium text-white bg-green-600 rounded-lg hover:bg-green-700">
+                        Als Neu Speichern
+                    </button>
+                    <button type="submit" id="saveButton" class="w-1/3 px-6 py-3 text-lg font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700">
+                        Überschreiben
+                    </button>
+                </div>
             </form>
         </div>
     </div>
@@ -124,6 +142,10 @@ function loadTemplate(templateId) {
         document.getElementById('exampleStructure').value = data.example_structure;
         document.getElementById('systemPrompt').value = data.system_prompt;
         document.getElementById('prompt').value = data.prompt;
+        document.getElementById('summarizer').checked = data.summarizer;
+
+        // Initiale Anzeige des Summarizer-Feldes
+        toggleSummarizerField();
 
         // Initiale JSON-Validierung beim Laden des Templates
         validateJson();
@@ -131,12 +153,36 @@ function loadTemplate(templateId) {
     .catch(error => console.error('Fehler beim Laden des Templates:', error));
 }
 
+// Funktion zum Anzeigen oder Ausblenden des Summarizer-Feldes basierend auf dem Output Format
+function toggleSummarizerField() {
+    const outputFormat = document.getElementById('outputFormat').value;
+    const summarizerField = document.getElementById('summarizerField');
+
+    if (outputFormat === 'TEXT') {
+        summarizerField.classList.remove('hidden');
+    } else {
+        summarizerField.classList.add('hidden');
+        // Wenn nicht 'TEXT', deaktiviere das Kontrollkästchen
+        document.getElementById('summarizer').checked = false;
+    }
+}
+
+// Ereignislistener für Änderungen am Output Format
+document.getElementById('outputFormat').addEventListener('change', function() {
+    toggleSummarizerField();
+    validateJson();
+});
+
+// Rufen Sie die Funktion beim Laden der Seite auf, um den aktuellen Zustand zu setzen
+toggleSummarizerField();
+
 // JSON-Validierung
 function validateJson() {
     const outputFormat = document.getElementById('outputFormat').value;
     const exampleStructure = document.getElementById('exampleStructure').value;
     const validationMessage = document.getElementById('jsonValidationMessage');
     const saveButton = document.getElementById('saveButton');
+    const saveAsNewButton = document.getElementById('saveAsNewButton');
 
     if (outputFormat === 'JSON') {
         try {
@@ -144,22 +190,31 @@ function validateJson() {
             validationMessage.textContent = 'Das JSON ist valide.';
             validationMessage.classList.remove('text-red-500');
             validationMessage.classList.add('text-green-500');
-            saveButton.disabled = false; // Speichern-Button aktivieren
+            saveButton.disabled = false;
+            saveAsNewButton.disabled = false;
             saveButton.classList.remove('bg-gray-400', 'cursor-not-allowed');
             saveButton.classList.add('bg-blue-600', 'hover:bg-blue-700');
+            saveAsNewButton.classList.remove('bg-gray-400', 'cursor-not-allowed');
+            saveAsNewButton.classList.add('bg-green-600', 'hover:bg-green-700');
         } catch (e) {
             validationMessage.textContent = 'Das JSON ist nicht valide.';
             validationMessage.classList.remove('text-green-500');
             validationMessage.classList.add('text-red-500');
-            saveButton.disabled = true; // Speichern-Button deaktivieren
+            saveButton.disabled = true;
+            saveAsNewButton.disabled = true;
             saveButton.classList.remove('bg-blue-600', 'hover:bg-blue-700');
             saveButton.classList.add('bg-gray-400', 'cursor-not-allowed');
+            saveAsNewButton.classList.remove('bg-green-600', 'hover:bg-green-700');
+            saveAsNewButton.classList.add('bg-gray-400', 'cursor-not-allowed');
         }
     } else {
         validationMessage.textContent = '';
-        saveButton.disabled = false; // Speichern-Button aktivieren
+        saveButton.disabled = false;
+        saveAsNewButton.disabled = false;
         saveButton.classList.remove('bg-gray-400', 'cursor-not-allowed');
         saveButton.classList.add('bg-blue-600', 'hover:bg-blue-700');
+        saveAsNewButton.classList.remove('bg-gray-400', 'cursor-not-allowed');
+        saveAsNewButton.classList.add('bg-green-600', 'hover:bg-green-700');
     }
 }
 
@@ -167,6 +222,7 @@ function validateJson() {
 document.getElementById('outputFormat').addEventListener('change', validateJson);
 document.getElementById('exampleStructure').addEventListener('input', validateJson);
 
+// Ereignislistener für das Überschreiben des Templates
 document.getElementById('templateForm').addEventListener('submit', function(event) {
     event.preventDefault();
 
@@ -176,7 +232,8 @@ document.getElementById('templateForm').addEventListener('submit', function(even
         output_format: document.getElementById('outputFormat').value,
         example_structure: document.getElementById('exampleStructure').value,
         system_prompt: document.getElementById('systemPrompt').value,
-        prompt: document.getElementById('prompt').value
+        prompt: document.getElementById('prompt').value,
+        summarizer: document.getElementById('summarizer').checked
     };
 
     fetch('/update_template', {
@@ -188,12 +245,67 @@ document.getElementById('templateForm').addEventListener('submit', function(even
     })
     .then(response => {
         if (response.ok) {
-            alert('Template erfolgreich gespeichert.');
+            alert('Template erfolgreich überschrieben.');
         } else {
-            alert('Fehler beim Speichern des Templates.');
+            alert('Fehler beim Überschreiben des Templates.');
         }
     })
-    .catch(error => console.error('Fehler beim Speichern des Templates:', error));
+    .catch(error => console.error('Fehler beim Überschreiben des Templates:', error));
+});
+
+// Ereignislistener für das Speichern als neues Template
+document.getElementById('saveAsNewButton').addEventListener('click', function() {
+    const formData = {
+        template_name: document.getElementById('templateName').value,
+        output_format: document.getElementById('outputFormat').value,
+        example_structure: document.getElementById('exampleStructure').value,
+        system_prompt: document.getElementById('systemPrompt').value,
+        prompt: document.getElementById('prompt').value,
+        summarizer: document.getElementById('summarizer').checked
+    };
+
+    fetch('/create_template', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(formData)
+    })
+    .then(response => {
+        if (response.ok) {
+            alert('Template erfolgreich als neues Template gespeichert.');
+            // Optional: Aktualisiere die Template-Liste
+            location.reload();
+        } else {
+            alert('Fehler beim Speichern des neuen Templates.');
+        }
+    })
+    .catch(error => console.error('Fehler beim Speichern des neuen Templates:', error));
+});
+
+// Ereignislistener für das Löschen des Templates
+document.getElementById('deleteButton').addEventListener('click', function() {
+    if (confirm('Sind Sie sicher, dass Sie dieses Template löschen möchten? Alle damit erstellten Berichte werden ebenfalls gelöscht.')) {
+        const templateId = document.getElementById('templateId').value;
+
+        fetch('/delete_template', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ id: templateId })
+        })
+        .then(response => {
+            if (response.ok) {
+                alert('Template und zugehörige Berichte erfolgreich gelöscht.');
+                // Aktualisiere die Template-Liste oder lade die Seite neu
+                location.reload();
+            } else {
+                alert('Fehler beim Löschen des Templates.');
+            }
+        })
+        .catch(error => console.error('Fehler beim Löschen des Templates:', error));
+    }
 });
 </script>
 {% endblock %}

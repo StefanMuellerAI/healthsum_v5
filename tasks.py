@@ -10,17 +10,16 @@ import traceback
 from models import db, HealthRecord, Report, ReportTemplate
 from extractors import openai_client
 from reports import generate_report
-from upload_tracker import log_upload
 from flask import current_app
 from extensions import socketio
-
+from utils import update_task_monitor, create_task_monitor, mark_notification_sent
 # Konfigurieren des Loggings
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 celery = create_celery_app()
 
 @celery.task(bind=True)
-def process_pdfs(self, filenames, patient_name, record_id=None, create_reports=False):
+def process_pdfs(self, filenames, patient_name, record_id=None, create_reports=False, user_id=None):
     start_time = datetime.utcnow()
     logger.info(f"Starting process_pdfs task for files: {filenames}")
     
@@ -47,10 +46,10 @@ def process_pdfs(self, filenames, patient_name, record_id=None, create_reports=F
 
         extraction_group = group(extraction_tasks)
 
-        # Updated workflow to include create_patient_summary and pass start_time and original_task_id
+        # Updated workflow to include create_patient_summary and pass start_time, original_task_id, and user_id
         workflow_chain = (
             extraction_group |
-            combine_extractions.s(filenames, patient_name, record_id, create_reports, start_time, original_task_id) |
+            combine_extractions.s(filenames, patient_name, record_id, create_reports, start_time, original_task_id, user_id) |
             process_record.s(original_task_id=original_task_id)
         )
 
@@ -145,7 +144,7 @@ def extract_gpt4_vision(self, file_path):
         }
 
 @celery.task(bind=True)
-def combine_extractions(self, extraction_results, filenames, patient_name, record_id=None, create_reports=False, start_time=None, original_task_id=None):
+def combine_extractions(self, extraction_results, filenames, patient_name, record_id=None, create_reports=False, start_time=None, original_task_id=None, user_id=None):
     logger.info(f"Starting combine_extractions task for files: {filenames}")
     logger.info(f"Received extraction results: {extraction_results}")
     try:
@@ -172,6 +171,7 @@ def combine_extractions(self, extraction_results, filenames, patient_name, recor
             record.token_count = count_tokens(record.text)
             record.timestamp = datetime.utcnow()
             record.create_reports = create_reports
+            record.user_id = user_id
             logger.info(f"Updated existing record {record_id} with new extractions")
         else:
             record = HealthRecord(
@@ -181,7 +181,8 @@ def combine_extractions(self, extraction_results, filenames, patient_name, recor
                 patient_name=patient_name,
                 medical_history_begin=None,
                 medical_history_end=None,
-                create_reports = create_reports
+                create_reports = create_reports,
+                user_id=user_id
             )
             db.session.add(record)
             logger.info("Created new record with extractions")
@@ -255,6 +256,11 @@ def process_record(self, data, original_task_id=None):
         else:
             logger.error(f"Record {record_id} not found")
 
+        if not record.create_reports:
+            start_time = data.get('start_time')
+            end_time = datetime.utcnow()
+            task_monitor = create_task_monitor(record_id)
+            update_task_monitor(task_monitor.id, start_time, end_time, token_count=record.token_count)
         return {
             'status': 'Record processing completed', 
             'record_id': record_id, 
@@ -272,6 +278,46 @@ def process_record(self, data, original_task_id=None):
         }
     finally:
         socketio.emit('task_status', {'status': 'process_record_completed'}, namespace='/tasks')
+
+
+@celery.task(bind=True)
+def regenerate_report_task(self, report_id):
+    try:
+        report = Report.query.get(report_id)
+        if not report:
+            logger.error(f"Report mit ID {report_id} nicht gefunden.")
+            return f"Report mit ID {report_id} nicht gefunden."
+
+        # Holen des zugehörigen HealthRecord und ReportTemplate
+        health_record = report.health_record
+        template = report.report_template
+
+        # Generieren des Berichts unter Verwendung des aktuellen Templates
+        report_content = generate_report(
+            template_name=template.template_name,
+            output_format=template.output_format,
+            example_structure=template.example_structure,
+            system_prompt=template.system_prompt,
+            prompt=template.prompt,
+            health_record_text=health_record.text,
+            health_record_token_count=health_record.token_count,
+            health_record_begin=health_record.medical_history_begin,
+            health_record_end=health_record.medical_history_end
+        )
+
+        # Aktualisieren des Berichts
+        report.content = report_content
+        report.created_at = datetime.utcnow()
+
+        db.session.commit()
+        logger.info(f"Report {report_id} wurde erfolgreich neu generiert.")
+
+        return f"Report {report_id} wurde erfolgreich neu generiert."
+
+    except Exception as e:
+        db.session.rollback()
+        logger.exception(f"Fehler beim Neu-Generieren des Reports {report_id}: {str(e)}")
+        return f"Fehler beim Neu-Generieren des Reports: {str(e)}"
 
 
 @celery.task(bind=True)
@@ -320,6 +366,7 @@ def create_report(self, data, original_task_id=None):
 
             # Erstelle einen neuen Report
             report = Report(
+                report_template_id=template.id,
                 health_record_id=health_record.id,
                 content=report_content,
                 report_type=template.template_name
@@ -332,7 +379,8 @@ def create_report(self, data, original_task_id=None):
         # Log the upload information
         end_time = datetime.utcnow()
         duration = end_time - start_time
-        log_upload(health_record_id, health_record.token_count, duration)
+        task_monitor = create_task_monitor(health_record_id)
+        update_task_monitor(task_monitor.id, start_date=start_time, end_date=end_time, token_count=health_record.token_count)
 
         return f"Reports für HealthRecord {health_record_id} wurden erstellt."
 
@@ -350,3 +398,40 @@ def create_report(self, data, original_task_id=None):
     finally:
         socketio.emit('task_status', {'status': 'create_report_completed'}, namespace='/tasks')
         db.session.close()
+
+@celery.task(bind=True)
+def generate_single_report(self, record_id, template_id):
+       logger.info(f"Generiere Bericht für Datensatz-ID {record_id} und Template-ID {template_id}")
+       record = HealthRecord.query.get(record_id)
+       template = ReportTemplate.query.get(template_id)
+   
+       if not record or not template:
+           logger.error("Datensatz oder Template nicht gefunden.")
+           return
+
+       # Generieren des Berichts
+       report_content = generate_report(
+           template_name=template.template_name,
+           output_format=template.output_format,
+           example_structure=template.example_structure,
+           system_prompt=template.system_prompt,
+           prompt=template.prompt,
+           health_record_text=record.text,
+           health_record_token_count=record.token_count,
+           health_record_begin=record.medical_history_begin,
+           health_record_end=record.medical_history_end
+       )
+
+       if report_content:
+           new_report = Report(
+               health_record_id=record_id,
+               report_template_id=template_id,
+               content=report_content,
+               report_type=template.template_name,
+               created_at=datetime.utcnow()
+           )
+           db.session.add(new_report)
+           db.session.commit()
+           logger.info(f"Bericht für Datensatz-ID {record_id} und Template-ID {template_id} erfolgreich generiert.")
+       else:
+           logger.error("Fehler beim Generieren des Berichts.")

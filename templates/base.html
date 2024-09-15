@@ -8,6 +8,8 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Aktuelle Socket.IO Client-Bibliothek hinzufügen -->
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <!-- Canvas Gauges Bibliothek -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-gauges@2.1.7/gauge.min.js"></script>
     <style>
         @keyframes gradient-x {
           0% {
@@ -25,22 +27,34 @@
 </head>
 <body class="h-full flex flex-col">
     <nav class="bg-gray-800 sticky top-0 z-50">
-        <div class="sticky top-0 z-50 max-w-full mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="max-w-full mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex items-center justify-between h-16">
+                <!-- Logo und Benutzername -->
                 <div class="flex items-center">
-                    <a href="/" class="text-white font-bold text-xl"><img src="{{ url_for('static', filename='healthsum_logo_white.png') }}" alt="Healthsum V5 Logo" class="h-9 w-auto"></a>
+                    <a href="/" class="text-white font-bold text-xl">
+                        <img src="{{ url_for('static', filename='healthsum_logo_white.png') }}" alt="Healthsum V5 Logo" class="h-9 w-auto">
+                    </a>
+                    {% if current_user.is_authenticated %}
+                        <span class="text-white text-xl ml-4">Account: {{ current_user.vorname }} {{ current_user.nachname }}</span>
+                    {% endif %}
                 </div>
+                <!-- Navigations-Links -->
                 <div class="hidden md:block">
                     <div class="ml-10 flex items-center space-x-4">
                         {% if current_user.is_authenticated %}
+                            <!-- KPI Button mit Tachometer-Icon -->
+                            <a href="/kpi" class="px-3 py-2 rounded-md text-sm font-medium text-gray-400 hover:text-white hover:bg-gray-700 flex items-center">
+                                <!-- Tachometer Icon -->
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+                                    <path d="M10 2a8 8 0 00-8 8h1.5a6.5 6.5 0 1113 0H18a8 8 0 00-8-8zM9 15a1 1 0 002 0V9a1 1 0 00-2 0v6z" />
+                                </svg>
+                            </a>
                             {% if request.path == '/read_reports' %}
                             <a href="/" class="px-3 py-2 rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 flex items-center">
-                                <!-- Icon -->
                                 Zum Dashboard
                             </a>
                             {% else %}
                             <a href="/read_reports" class="px-3 py-2 rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 flex items-center">
-                                <!-- Icon -->
                                 Zu den Berichten
                             </a>
                             {% endif %}
@@ -49,12 +63,10 @@
                                 Template-Editor
                             </a>
                             <a href="{{ url_for('logout') }}" class="px-3 py-2 rounded-md text-sm font-medium text-white bg-red-600 hover:bg-red-700 flex items-center">
-                                <!-- Icon -->
                                 Logout
                             </a>
                         {% else %}
                             <a href="{{ url_for('login') }}" class="px-3 py-2 rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 flex items-center">
-                                <!-- Icon -->
                                 Login
                             </a>
                         {% endif %}
@@ -66,7 +78,6 @@
     <div id="progress-container" class="w-full bg-gray-200 sticky top-16 h-5 mb-4 hidden">
         <div id="progress-bar" class="h-1 bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 bg-[length:200%_200%] animate-gradient-x" style="width: 0%;"></div>
     </div>
-  
 
     <main class="flex-grow py-6 sm:px-6 lg:px-8">
         {% block content %}{% endblock %}
@@ -78,7 +89,5 @@
             <a href="/datenschutz" class="hover:text-gray-300">Datenschutz</a>
         </div>
     </footer>
-
-    
 </body>
 </html>

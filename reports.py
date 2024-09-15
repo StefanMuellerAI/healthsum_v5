@@ -35,11 +35,13 @@ def generate_report_gpt4(template_name, output_format, example_structure, system
     """
     logger.info(f"Erstelle Bericht für Jahr {year} mit GPT-4.")
     
-    # Extrahiere den Ausgabetyp aus der ersten Zeile des Prompts
-    output_type = output_format 
-
-    # Passe den Gesundheitstext für das Jahr an
-    year_focussed_actual_prompt = f"{system_prompt}\n\n{prompt}\n\n{output_format}\n\n{example_structure}\nFokussiere dich nur auf das Jahr {year}:"
+    year_focussed_actual_prompt = (
+        f"System Prompt: {system_prompt}\n\n"
+        f"Prompt: {prompt}\n\n"
+        f"Output Format: {output_format}\n\n"
+        f"Beispielstruktur: {example_structure}\n"
+        f"Fokussiere dich nur auf das Jahr {year}:"
+    )
 
     # Basis-Parameter für die API-Anfrage
     api_params = {
@@ -50,43 +52,58 @@ def generate_report_gpt4(template_name, output_format, example_structure, system
         ],
         "temperature": 0.7,
         "max_tokens": 16000,
-        "response_format": { "type": "json_object" }
     }
+
+    # Füge response_format hinzu, wenn das Ausgabeformat JSON ist
+    if output_format.lower() == "json":
+        api_params["response_format"] = {"type": "json_object"}
 
     # Generiere den Report mit GPT-4
     try:
         response = openai_client.chat.completions.create(**api_params)
         response_content = response.choices[0].message.content.strip()
-        logger.info(f"GPT-4 API-Antwort erhalten: {response_content[:100]}...")  # Nur die ersten 100 Zeichen loggen
+        logger.info(f"GPT-4 API-Antwort erhalten: {response_content[:100]}...")
 
-        # Bereinige die Antwort von Markdown-Syntax, falls vorhanden
-        response_content = clean_json_response(response_content)
+        if output_format.lower() == "json":
+            # Bereinige die Antwort von Markdown-Syntax, falls vorhanden
+            response_content = clean_json_response(response_content)
 
-        # Parsen des JSON
-        try:
-            json_data = json.loads(response_content)
-            logger.info(f"GPT-4 JSON erfolgreich geparst für Jahr {year}.")
-        except json.JSONDecodeError as json_err:
-            logger.error(f"Fehler beim Parsen des JSON von GPT-4 für Jahr {year}: {json_err}")
-            return None
+            # Extrahiere den ersten Schlüssel aus der Beispielstruktur
+            example_structure_json = json.loads(example_structure)
+            first_key = next(iter(example_structure_json.keys()))
 
-        # Extrahieren der Behandlungen aus dem 'Bericht' Schlüssel
-        behandlungen = json_data.get('Bericht', [])
+            # Parsen des JSON
+            try:
+                json_data = json.loads(response_content)
+                logger.info(f"GPT-4 JSON erfolgreich geparst für Jahr {year}.")
+            except json.JSONDecodeError as json_err:
+                logger.error(f"Fehler beim Parsen des JSON von GPT-4 für Jahr {year}: {json_err}")
+                return None
 
-        # Bereinigung von Whitespaces
-        for behandlung in behandlungen:
-            for key, value in behandlung.items():
-                if isinstance(value, str):
-                    behandlung[key] = value.strip()
+            # Extrahieren der Daten aus dem ersten Schlüssel
+            data = json_data.get(first_key, [])
 
-        # Konvertiere in DataFrame für einfache Sortierung
-        df = pd.DataFrame(behandlungen)
+            # Bereinigung von Whitespaces
+            for item in data:
+                for key, value in item.items():
+                    if isinstance(value, str):
+                        item[key] = value.strip()
 
-        # Sortiere nach Datum der Behandlung
-        df['Datum'] = pd.to_datetime(df['Datum'])
-        df_sorted = df.sort_values('Datum')
+            # Konvertiere in DataFrame für einfache Sortierung, falls möglich
+            df = pd.DataFrame(data)
 
-        return df_sorted
+            if 'Datum' in df.columns:
+                df['Datum'] = pd.to_datetime(df['Datum'])
+                df_sorted = df.sort_values('Datum')
+            else:
+                df_sorted = df
+
+            return df_sorted
+
+        else:
+            # Wenn das Ausgabeformat Text ist, gib den Text zurück
+            logger.info(f"Textbericht für Jahr {year} erhalten.")
+            return response_content
 
     except Exception as e:
         logger.error(f"Fehler bei der Verarbeitung mit GPT-4: {e}")
@@ -99,55 +116,73 @@ def generate_report_gemini(template_name, output_format, example_structure, syst
     """
     logger.info(f"Erstelle Bericht für Jahr {year} mit Google Gemini.")
     
-    # Bereite den Prompt vor
-    year_focussed_actual_prompt = f"{system_prompt}\n\n{prompt}\n\n{output_format}\n\n{example_structure}\nFokussiere dich nur auf das Jahr {year}:"
+    year_focussed_actual_prompt = (
+        f"System Prompt: {system_prompt}\n\n"
+        f"Prompt: {prompt}\n\n"
+        f"Output Format: {output_format}\n\n"
+        f"Beispielstruktur: {example_structure}\n"
+        f"Fokussiere dich nur auf das Jahr {year}:"
+    )
     
     try:
+        # Generationskonfiguration
+        generation_config = genai.types.GenerationConfig(
+            max_output_tokens=8000,
+        )
+
+        # Füge response_mime_type hinzu, wenn das Ausgabeformat JSON ist
+        if output_format.lower() == "json":
+            generation_config.response_mime_type = "application/json"
+
         # API-Aufruf mit Google Gemini
         response = gemini_model.generate_content(
             f"Das ist deine Datenbasis: {health_record_text}\n\n{year_focussed_actual_prompt}",
-            generation_config=genai.types.GenerationConfig(
-                max_output_tokens=8000, 
-                response_mime_type="application/json"  # Gemini unterstützt größere Kontextfenster
-            )
+            generation_config=generation_config
         )
         response_text = response.text.strip()
-        logger.info(f"Google Gemini API-Antwort erhalten: {response_text[:100]}...")  # Nur die ersten 100 Zeichen loggen
+        logger.info(f"Google Gemini API-Antwort erhalten: {response_text[:100]}...")
 
-        # Versuche, das Ergebnis als JSON zu interpretieren
-        try:
-            json_data = json.loads(response_text)
-            logger.info(f"Google Gemini JSON erfolgreich geparst für Jahr {year}.")
-        except json.JSONDecodeError as json_err:
-            logger.error(f"Fehler beim Parsen des JSON von Google Gemini für Jahr {year}: {json_err}")
-            return None
+        if output_format.lower() == "json":
+            # Extrahiere den ersten Schlüssel aus der Beispielstruktur
+            example_structure_json = json.loads(example_structure)
+            first_key = next(iter(example_structure_json.keys()))
 
-        # Extrahiere die Behandlungen aus dem JSON-Bericht
-        behandlungen = json_data.get('Bericht', [])
+            # Versuche, das Ergebnis als JSON zu interpretieren
+            try:
+                json_data = json.loads(response_text)
+                logger.info(f"Google Gemini JSON erfolgreich geparst für Jahr {year}.")
+            except json.JSONDecodeError as json_err:
+                logger.error(f"Fehler beim Parsen des JSON von Google Gemini für Jahr {year}: {json_err}")
+                return None
 
-        # Bereinigung von Whitespaces
-        for behandlung in behandlungen:
-            for key, value in behandlung.items():
-                if isinstance(value, str):
-                    behandlung[key] = value.strip()
+            # Extrahiere die Daten aus dem ersten Schlüssel
+            data = json_data.get(first_key, [])
 
-        # Konvertiere in DataFrame für einfache Sortierung
-        df = pd.DataFrame(behandlungen)
+            # Bereinigung von Whitespaces
+            for item in data:
+                for key, value in item.items():
+                    if isinstance(value, str):
+                        item[key] = value.strip()
 
-        # Sortiere nach Datum der Behandlung
-        df['Datum'] = pd.to_datetime(df['Datum'])
-        df_sorted = df.sort_values('Datum')
+            # Konvertiere in DataFrame für einfache Sortierung, falls möglich
+            df = pd.DataFrame(data)
 
-        return df_sorted
+            if 'Datum' in df.columns:
+                df['Datum'] = pd.to_datetime(df['Datum'])
+                df_sorted = df.sort_values('Datum')
+            else:
+                df_sorted = df
+
+            return df_sorted
+
+        else:
+            # Wenn das Ausgabeformat Text ist, gib den Text zurück
+            logger.info(f"Textbericht für Jahr {year} erhalten.")
+            return response_text
 
     except Exception as e:
         logger.error(f"Fehler bei der Verarbeitung mit Google Gemini: {e}")
         return None
-
-
-
-
-
 
 # Hauptfunktion zur Generierung des Berichts
 def generate_report(template_name, output_format, example_structure, system_prompt, prompt, health_record_text, health_record_token_count, health_record_begin, health_record_end):
@@ -158,6 +193,7 @@ def generate_report(template_name, output_format, example_structure, system_prom
     logger.info("Starte die Erstellung des kombinierten Gesundheitsberichts.")
     
     all_year_reports = []
+    text_reports = []
 
     # Entscheide, ob GPT-4 oder Gemini verwendet wird
     use_gemini = health_record_token_count > 16000
@@ -177,13 +213,21 @@ def generate_report(template_name, output_format, example_structure, system_prom
         try:
             # Verwende GPT-4 oder Gemini basierend auf der Tokenanzahl
             if use_gemini:
-                yearly_report = generate_report_gemini(template_name, output_format, example_structure, system_prompt, prompt, health_record_text, year)
+                yearly_report = generate_report_gemini(
+                    template_name, output_format, example_structure, system_prompt, prompt, health_record_text, year
+                )
             else:
-                yearly_report = generate_report_gpt4(template_name, output_format, example_structure, system_prompt, prompt, health_record_text, year)
+                yearly_report = generate_report_gpt4(
+                    template_name, output_format, example_structure, system_prompt, prompt, health_record_text, year
+                )
 
-            # Wenn der Bericht erfolgreich ist, füge ihn zur Liste hinzu
+            # Wenn der Bericht erfolgreich ist, füge ihn zur entsprechenden Liste hinzu
             if yearly_report is not None:
-                all_year_reports.append(yearly_report)
+                if output_format.lower() == "json":
+                    all_year_reports.append(yearly_report)
+                else:
+                    # Für Textberichte
+                    text_reports.append(f"Bericht für Jahr {year}:\n{yearly_report}\n")
             else:
                 logger.warning(f"Bericht für das Jahr {year} konnte nicht erstellt werden.")
 
@@ -191,14 +235,100 @@ def generate_report(template_name, output_format, example_structure, system_prom
             logger.error(f"Fehler beim Erstellen des Berichts für Jahr {year}: {e}")
             # Fortfahren, auch wenn ein Jahr fehlschlägt
 
-    if all_year_reports:
+    if output_format.lower() == "json" and all_year_reports:
         # Kombiniere alle jährlichen Berichte in einem DataFrame
-        combined_report = pd.concat(all_year_reports)
+        combined_report = pd.concat(all_year_reports, ignore_index=True)
 
         # Konvertiere zurück zu JSON
-        combined_report_json = combined_report.to_json(orient='records')
+        combined_report_json = combined_report.to_json(orient='records', force_ascii=False)
         logger.info("Erstellung des kombinierten Berichts abgeschlossen.")
         return combined_report_json
+
+    elif output_format.lower() != "json" and text_reports:
+        # Kombiniere alle Textberichte
+        combined_text_report = "\n".join(text_reports)
+        logger.info("Erstellung des kombinierten Textberichts abgeschlossen.")
+
+        # Führe zusätzliche Verarbeitung des kombinierten Berichts durch
+        logger.info("Starte zusätzliche Verarbeitung des kombinierten Textberichts.")
+
+        try:
+            if use_gemini:
+                final_report = process_combined_text_gemini(
+                    template_name, output_format, example_structure, system_prompt, prompt, combined_text_report
+                )
+            else:
+                final_report = process_combined_text_gpt4(
+                    template_name, output_format, example_structure, system_prompt, prompt, combined_text_report
+                )
+            logger.info("Zusätzliche Verarbeitung des kombinierten Textberichts abgeschlossen.")
+            return final_report
+        except Exception as e:
+            logger.error(f"Fehler bei der zusätzlichen Verarbeitung des kombinierten Textberichts: {e}")
+            return combined_text_report
+
     else:
         logger.warning("Keine Berichte verfügbar.")
-        return json.dumps({"error": "Keine Berichte verfügbar."})
+        return "Keine Berichte verfügbar."
+
+def process_combined_text_gpt4(template_name, output_format, example_structure, system_prompt, prompt, combined_text_report):
+    """
+    Verarbeitet den kombinierten Textbericht mit GPT-4, um eine Gesamtauswertung zu erhalten.
+    """
+    logger.info("Verarbeite den kombinierten Textbericht mit GPT-4.")
+
+    final_system_prompt = system_prompt
+    final_prompt = (
+        f"{prompt}\n\n"
+        f"Bitte fasse die folgenden Jahresberichte zu einem Gesamtbericht zusammen und beantworte dabei die Fragestellung über alle Jahre hinweg.\n\n"
+        f"{combined_text_report}"
+    )
+
+    api_params = {
+        "model": openai_model,
+        "messages": [
+            {"role": "system", "content": final_system_prompt},
+            {"role": "user", "content": final_prompt}
+        ],
+        "temperature": 0.7,
+        "max_tokens": 16000,
+    }
+
+    try:
+        response = openai_client.chat.completions.create(**api_params)
+        response_content = response.choices[0].message.content.strip()
+        logger.info("Verarbeitung mit GPT-4 abgeschlossen.")
+        return response_content
+    except Exception as e:
+        logger.error(f"Fehler bei der Verarbeitung mit GPT-4: {e}")
+        return combined_text_report
+
+def process_combined_text_gemini(template_name, output_format, example_structure, system_prompt, prompt, combined_text_report):
+    """
+    Verarbeitet den kombinierten Textbericht mit Google Gemini, um eine Gesamtauswertung zu erhalten.
+    """
+    logger.info("Verarbeite den kombinierten Textbericht mit Google Gemini.")
+
+    final_system_prompt = system_prompt
+    final_prompt = (
+        f"{prompt}\n\n"
+        f"Bitte fasse die folgenden Jahresberichte zu einem Gesamtbericht zusammen und beantworte dabei die Fragestellung über alle Jahre hinweg.\n\n"
+        f"{combined_text_report}"
+    )
+
+    try:
+        # Generationskonfiguration
+        generation_config = genai.types.GenerationConfig(
+            max_output_tokens=8000,
+        )
+
+        response = gemini_model.generate_content(
+            f"{final_system_prompt}\n\n{final_prompt}",
+            generation_config=generation_config
+        )
+        response_text = response.text.strip()
+        logger.info("Verarbeitung mit Google Gemini abgeschlossen.")
+        return response_text
+    except Exception as e:
+        logger.error(f"Fehler bei der Verarbeitung mit Google Gemini: {e}")
+        return combined_text_report

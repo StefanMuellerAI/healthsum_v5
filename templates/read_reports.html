@@ -50,7 +50,10 @@
 </div>
 
 <script>
+let currentRecordId = null; // Variable zum Speichern der aktuellen Datensatz-ID
+
 function loadReports(recordId) {
+    currentRecordId = recordId; // Setzen der aktuellen Datensatz-ID
     fetch(`/get_reports/${recordId}`)
     .then(response => response.json())
     .then(data => {
@@ -61,28 +64,94 @@ function loadReports(recordId) {
             data.reports.forEach(report => {
                 const reportCard = document.createElement('div');
                 reportCard.className = 'bg-white shadow-lg rounded-lg overflow-hidden';
+
+                let buttonsHtml = '';
+
+                if (report.exists) {
+                    // Bericht existiert bereits
+                    buttonsHtml = `
+                        <a href="/report/${report.id}" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg transition duration-300" aria-label="Bericht ansehen">
+                            Ansehen
+                        </a>
+                        <button onclick="regenerateReport(${report.id})" class="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-4 rounded-lg transition duration-300" aria-label="Bericht neu generieren">
+                            Neu generieren
+                        </button>
+                    `;
+                } else {
+                    // Bericht existiert noch nicht
+                    buttonsHtml = `
+                        <button onclick="generateReport(${report.report_template_id})" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg transition duration-300" aria-label="Bericht generieren">
+                            Generieren
+                        </button>
+                    `;
+                }
+
                 reportCard.innerHTML = `
                     <div class="px-6 py-5 flex items-center justify-between">
                         <div>
                             <h3 class="text-xl font-semibold mb-1">${report.report_type}</h3>
-                            <p class="text-sm text-gray-500 mb-2">Erstellt am: ${new Date(report.created_at).toLocaleDateString('de-DE')}</p>
+                            ${report.exists ? `<p class="text-sm text-gray-500 mb-2">Erstellt am: ${new Date(report.created_at).toLocaleDateString('de-DE')}</p>` : '<p class="text-sm text-gray-500 mb-2">Noch nicht generiert</p>'}
                         </div>
-                        <div>
-                            <a href="/report/${report.id}" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg transition duration-300" aria-label="Bericht ansehen">
-                                Ansehen
-                            </a>
+                        <div class="flex items-center space-x-2">
+                            ${buttonsHtml}
                         </div>
                     </div>
                 `;
                 reportsContainer.appendChild(reportCard);
             });
         } else {
-            reportsContainer.innerHTML = '<p>Für diesen Datensatz sind keine Berichte verfügbar.</p>';
+            reportsContainer.innerHTML = '<p>Für diesen Datensatz sind (noch) keine Berichte verfügbar.</p>';
         }
     })
     .catch(error => {
         console.error('Fehler beim Laden der Berichte:', error);
     });
+}
+
+// Funktion zum Generieren des Berichts
+function generateReport(reportTemplateId) {
+    if (confirm('Möchten Sie diesen Bericht generieren?')) {
+        fetch(`/generate_report/${currentRecordId}/${reportTemplateId}`, {
+            method: 'POST',
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+                'Content-Type': 'application/json',
+            },
+            credentials: 'include'
+        })
+        .then(response => response.json())
+        .then(data => {
+            alert(data.message);
+            // Aktualisiere die Berichte, um den neuen Bericht anzuzeigen
+            loadReports(currentRecordId);
+        })
+        .catch(error => {
+            console.error('Fehler beim Generieren des Berichts:', error);
+        });
+    }
+}
+
+// Funktion zum Neu-Generieren des Berichts
+function regenerateReport(reportId) {
+    if (confirm('Sind Sie sicher, dass Sie den Bericht neu generieren möchten?')) {
+        fetch(`/regenerate_report/${reportId}`, {
+            method: 'POST',
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+                'Content-Type': 'application/json',
+            },
+            credentials: 'include'
+        })
+        .then(response => response.json())
+        .then(data => {
+            alert(data.message);
+            // Reload the reports to show the updated content
+            loadReports(currentRecordId);
+        })
+        .catch(error => {
+            console.error('Fehler beim Neu-Generieren des Berichts:', error);
+        });
+    }
 }
 
 // Suchfunktion für die Liste der Datensätze

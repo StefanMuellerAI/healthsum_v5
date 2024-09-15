@@ -74,7 +74,13 @@
                     </div>
                     <div class="flex items-center">
                         <input id="createReports" name="createReports" type="checkbox" class="h-5 w-5 text-blue-600 focus:ring-blue-500 border-gray-300 rounded">
-                        <label for="createReports" class="ml-2 block text-lg text-gray-700">Berichte erstellen</label>
+                        <label for="createReports" class="ml-2 block text-lg text-gray-700">
+                            {% if report_templates > 1 %}
+                                Alle {{ report_templates }} Berichte erstellen
+                            {% else %}
+                                Alle Berichte erstellen
+                            {% endif %}
+                        </label>
                     </div>
                 </div>
                 <div class="mt-6">
