@@ -80,7 +80,7 @@ def upload_file():
         if not record:
             return jsonify({'error': 'Record not found'}), 404
         patient_name = record.patient_name
-        record.create_reports = create_reports
+        
     else:
         # Neuen Datensatz erstellen
         first_name = request.form.get('firstName')

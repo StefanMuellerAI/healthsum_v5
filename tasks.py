@@ -149,9 +149,19 @@ def combine_extractions(self, extraction_results, filenames, patient_name, recor
     logger.info(f"Received extraction results: {extraction_results}")
     try:
         socketio.emit('task_status', {'status':'combine_extractions_started'}, namespace='/tasks')
-        # Verwenden der original_task_id
         task_id_to_emit = original_task_id or self.request.id
-        valid_results = [result for result in extraction_results if result]
+
+        valid_results = []
+        errors = []
+
+        for result in extraction_results:
+            if isinstance(result, str):
+                valid_results.append(result)
+            elif isinstance(result, dict) and 'exc_message' in result:
+                errors.append(result['exc_message'])
+                logger.error(f"Extraction error: {result['exc_message']}")
+            else:
+                logger.warning(f"Unexpected extraction result: {result}")
 
         if not valid_results:
             logger.warning("No valid extraction results received")
@@ -181,7 +191,7 @@ def combine_extractions(self, extraction_results, filenames, patient_name, recor
                 patient_name=patient_name,
                 medical_history_begin=None,
                 medical_history_end=None,
-                create_reports = create_reports,
+                create_reports=create_reports,
                 user_id=user_id
             )
             db.session.add(record)
@@ -202,6 +212,10 @@ def combine_extractions(self, extraction_results, filenames, patient_name, recor
         logger.info(f"Saved combined extraction result to database and deleted PDF files for files: {filenames}")
         logger.info(f"combine_extractions task completed successfully for files: {filenames}")
 
+        # Senden von Informationen über Fehler in der Extraktion, falls vorhanden
+        if errors:
+            logger.error(f"Errors occurred during extraction: {errors}")
+
         with current_app.app_context():
             logger.info(f"Sende 'combine_extractions_completed' Event für task_id: {task_id_to_emit}")
             socketio.emit('task_status', {'status': 'combine_extractions_completed', 'task_id': task_id_to_emit}, namespace='/tasks', room=task_id_to_emit)
@@ -210,11 +224,11 @@ def combine_extractions(self, extraction_results, filenames, patient_name, recor
             'status': 'Verarbeitung abgeschlossen',
             'token_count': record.token_count,
             'record_id': record_id,
-            'start_time': start_time
+            'start_time': start_time,
+            'errors': errors  # Fügen Sie Fehlerinformationen hinzu, falls gewünscht
         }
     except Exception as exc:
         logger.exception(f"Error in combine_extractions task for files: {filenames}")
-        # Senden eines Ereignisses bei Fehler
         socketio.emit('task_status', {'status': 'error', 'message': str(exc)}, namespace='/tasks')
         return {
             'status': 'error',
