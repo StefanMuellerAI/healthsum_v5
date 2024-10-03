@@ -2,3 +2,13 @@
 uploads/
 instance/
 init_db.py
+*.pyc
+__pycache__/
+*.log
+*.log.*
+*.out
+*.out.*
+*.err
+*.err.*
+*.pid
+*.pid.*

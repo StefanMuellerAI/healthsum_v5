@@ -2,17 +2,20 @@
 import os
 import logging
 from celery import chain, group, shared_task
+from celery.schedules import crontab
 from celery_config import create_celery_app
 from extractors import PDFTextExtractor, OCRExtractor, AzureVisionExtractor, GPT4VisionExtractor
 from utils import count_tokens, find_patient_info
 from datetime import datetime
 import traceback
-from models import db, HealthRecord, Report, ReportTemplate
+from models import db, HealthRecord, Report, ReportTemplate, TaskMonitor
 from extractors import openai_client
 from reports import generate_report
-from flask import current_app
+from flask import current_app, render_template
 from extensions import socketio
 from utils import update_task_monitor, create_task_monitor, mark_notification_sent
+from flask_mail import Mail, Message
+
 # Konfigurieren des Loggings
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -449,3 +452,57 @@ def generate_single_report(self, record_id, template_id):
            logger.info(f"Bericht für Datensatz-ID {record_id} und Template-ID {template_id} erfolgreich generiert.")
        else:
            logger.error("Fehler beim Generieren des Berichts.")
+
+@celery.task(bind=True)
+def send_notifications_task(self):
+    with current_app.app_context():
+
+        current_app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER')
+        current_app.config['MAIL_PORT'] = int(os.getenv('MAIL_PORT'))
+        current_app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
+        current_app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
+        current_app.config['MAIL_USE_TLS'] = os.getenv('MAIL_USE_TLS') == 'True'
+        current_app.config['MAIL_USE_SSL'] = os.getenv('MAIL_USE_SSL') == 'True'
+        # Initialisierung von Mail
+        mail = Mail(current_app)
+
+        # Abfrage der TaskMonitors, bei denen end_date gesetzt ist und notification_sent False ist
+        pending_notifications = TaskMonitor.query.filter(
+            TaskMonitor.end_date.isnot(None),
+            TaskMonitor.notification_sent == False
+        ).all()
+
+        for task in pending_notifications:
+            health_record = task.health_record
+            user = health_record.user
+            duration = None
+            if task.start_date and task.end_date:
+                duration_td = task.end_date - task.start_date
+                total_seconds = int(duration_td.total_seconds())
+                hours, remainder = divmod(total_seconds, 3600)
+                minutes, seconds = divmod(remainder, 60)
+                duration = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+            subject = f"Verarbeitung abgeschlossen für Datensatz ID {health_record.id}"
+
+            # Rendern der E-Mail-Vorlage
+            html_body = render_template(
+                'e-mails/notification_template.html',
+                user=user,
+                health_record=health_record,
+                duration=duration
+            )
+
+            # E-Mail erstellen und senden
+            msg = Message(subject=subject, sender=current_app.config['MAIL_USERNAME'], recipients=[user.email])
+            msg.html = html_body
+            try:
+                mail.send(msg)
+                print(f"E-Mail an {user.email} gesendet.")
+            except Exception as e:
+                print(f"Fehler beim Senden der E-Mail an {user.email}: {e}")
+                continue  # Fährt mit dem nächsten Task fort, ohne notification_sent zu setzen
+
+            # Aktualisieren des notification_sent Feldes
+            task.notification_sent = True
+            db.session.commit()

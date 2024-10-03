@@ -31,6 +31,7 @@ CELERY_QUEUES = {
     'refinement': {},
     'summary': {},
     'regenerate_report': {},
+    'notification': {}
 }
 
 # Routing-Einstellungen
@@ -45,10 +46,15 @@ CELERY_ROUTES = {
     'tasks.create_report': {'queue': 'summary'},
     'tasks.regenerate_report_task': {'queue': 'regenerate_report'},
     'tasks.generate_single_report': {'queue': 'regenerate_report'},
+    'tasks.send_notifications_task': {'queue': 'notification'}
 }
 
 # Beat-Schedule-Einstellungen
 CELERYBEAT_SCHEDULE = {
+    'send-notifications-every-minute': {
+        'task': 'tasks.send_notifications_task',
+        'schedule': crontab(minute='*/1'),  # Jede Minute
+    },
     'check-and-create-summaries': {
         'task': 'tasks.check_and_create_summaries',
         'schedule': crontab(minute='*/15'),  # Alle 15 Minuten
