@@ -12,10 +12,11 @@ from celery import chain
 from tasks import process_pdfs, create_report, process_record, regenerate_report_task, generate_single_report
 from datetime import datetime
 from flask_login import login_user, login_required, logout_user, LoginManager, current_user
-from werkzeug.security import check_password_hash
+from werkzeug.security import check_password_hash, generate_password_hash
 from celery.app.control import Inspect
 from extensions import socketio
 from celery.result import AsyncResult
+from sqlalchemy.exc import IntegrityError
 
 #Todo:
 # - Userid beim create, read, edit und delete von DAtensätzen und Berichten hinzufügen. 
@@ -327,12 +328,17 @@ def on_join_task_room(data):
 @app.route('/edit_report_templates')
 @login_required
 def edit_report_templates():
+    if current_user.level != 'admin':
+        flash('Sie haben keine Berechtigung für diese Seite.', 'error')
+        return redirect(url_for('index'))
     templates = ReportTemplate.query.order_by(ReportTemplate.template_name).all()
     return render_template('edit_report_templates.html', templates=templates)
 
 @app.route('/get_template/<int:template_id>')
 @login_required
 def get_template(template_id):
+    if current_user.level != 'admin':
+        abort(403)
     template = ReportTemplate.query.get_or_404(template_id)
     return jsonify({
         'id': template.id,
@@ -347,6 +353,8 @@ def get_template(template_id):
 @app.route('/update_template', methods=['POST'])
 @login_required
 def update_template():
+    if current_user.level != 'admin':
+        abort(403)
     data = request.get_json()
     if not data or 'id' not in data:
         return jsonify({'error': 'Ungültige Daten'}), 400
@@ -481,6 +489,131 @@ def delete_template():
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': f'Fehler beim Löschen des Templates: {str(e)}'}), 500
+
+@app.route('/user_management')
+@login_required
+def user_management():
+    if current_user.level != 'admin':
+        abort(403)
+    users = User.query.all()
+    return render_template('user_management.html', users=users, current_user=current_user)
+
+@app.route('/create_user', methods=['POST'])
+@login_required
+def create_user():
+    if current_user.level != 'admin':
+        abort(403)
+    
+    try:
+        # Überprüfen, ob Benutzername oder E-Mail bereits existieren
+        existing_user = User.query.filter(
+            (User.username == request.form['username']) | 
+            (User.email == request.form['email'])
+        ).first()
+        
+        if existing_user:
+            if existing_user.username == request.form['username']:
+                flash('Dieser Benutzername existiert bereits.', 'error')
+            else:
+                flash('Diese E-Mail-Adresse existiert bereits.', 'error')
+            return redirect(url_for('user_management'))
+
+        # Neuen Benutzer erstellen
+        user = User(
+            vorname=request.form['vorname'],
+            nachname=request.form['nachname'],
+            username=request.form['username'],
+            email=request.form['email'],
+            level=request.form['level'],
+            is_active='is_active' in request.form
+        )
+        user.set_password(request.form['password'])
+        
+        db.session.add(user)
+        db.session.commit()
+        flash('Benutzer wurde erfolgreich erstellt.', 'success')
+        
+    except IntegrityError as e:
+        db.session.rollback()
+        flash('Ein Benutzer mit diesem Benutzernamen oder dieser E-Mail existiert bereits.', 'error')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Fehler beim Erstellen des Benutzers: {str(e)}', 'error')
+        print(f"Error creating user: {str(e)}")
+    
+    return redirect(url_for('user_management'))
+
+@app.route('/edit_user/<int:user_id>', methods=['POST'])
+@login_required
+def edit_user(user_id):
+    if current_user.level != 'admin':
+        abort(403)
+    
+    if not request.form:
+        flash('Keine Daten empfangen.', 'error')
+        return redirect(url_for('user_management'))
+
+    user = User.query.get_or_404(user_id)
+    try:
+        # Überprüfen auf Duplikate, aber den aktuellen Benutzer ausschließen
+        existing_user = User.query.filter(
+            (User.id != user_id) & 
+            ((User.username == request.form['username']) | 
+             (User.email == request.form['email']))
+        ).first()
+        
+        if existing_user:
+            if existing_user.username == request.form['username']:
+                flash('Dieser Benutzername existiert bereits.', 'error')
+            else:
+                flash('Diese E-Mail-Adresse existiert bereits.', 'error')
+            return redirect(url_for('user_management'))
+
+        # Benutzer aktualisieren
+        user.vorname = request.form['vorname']
+        user.nachname = request.form['nachname']
+        user.username = request.form['username']
+        user.email = request.form['email']
+        user.level = request.form['level']
+        user.is_active = 'is_active' in request.form
+
+        if request.form.get('password'):
+            user.set_password(request.form['password'])
+        
+        db.session.commit()
+        flash('Benutzer wurde erfolgreich aktualisiert.', 'success')
+        
+    except IntegrityError:
+        db.session.rollback()
+        flash('Ein Benutzer mit diesem Benutzernamen oder dieser E-Mail existiert bereits.', 'error')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Fehler beim Aktualisieren des Benutzers: {str(e)}', 'error')
+        print(f"Error updating user: {str(e)}")
+    
+    return redirect(url_for('user_management'))
+
+@app.route('/delete_user/<int:user_id>', methods=['POST'])
+@login_required
+def delete_user(user_id):
+    if current_user.level != 'admin':
+        abort(403)
+    
+    if user_id == current_user.id:
+        flash('Sie können sich nicht selbst löschen.', 'error')
+        return redirect(url_for('user_management'))
+    
+    user = User.query.get_or_404(user_id)
+    try:
+        db.session.delete(user)
+        db.session.commit()
+        flash('Benutzer wurde erfolgreich gelöscht.', 'success')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Fehler beim Löschen des Benutzers: {str(e)}', 'error')
+        print(f"Error deleting user: {str(e)}")  # Für Debugging
+    
+    return redirect(url_for('user_management'))
 
 if __name__ == '__main__':
     with app.app_context():

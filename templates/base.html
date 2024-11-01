@@ -43,12 +43,14 @@
                     <div class="ml-10 flex items-center space-x-4">
                         {% if current_user.is_authenticated %}
                             <!-- KPI Button mit Tachometer-Icon -->
+                            {% if current_user.is_authenticated and current_user.level == 'admin' %}
                             <a href="/kpi" class="px-3 py-2 rounded-md text-sm font-medium text-gray-400 hover:text-white hover:bg-gray-700 flex items-center">
                                 <!-- Tachometer Icon -->
                                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
                                     <path d="M10 2a8 8 0 00-8 8h1.5a6.5 6.5 0 1113 0H18a8 8 0 00-8-8zM9 15a1 1 0 002 0V9a1 1 0 00-2 0v6z" />
                                 </svg>
                             </a>
+                            {% endif %}
                             {% if request.path == '/read_reports' %}
                             <a href="/" class="px-3 py-2 rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 flex items-center">
                                 Zum Dashboard
@@ -59,12 +61,27 @@
                             </a>
                             {% endif %}
                             <!-- Neuer Button zum Template-Editor -->
-                            <a href="{{ url_for('edit_report_templates') }}" class="px-3 py-2 rounded-md text-sm font-medium text-white bg-green-600 hover:bg-green-700 flex items-center">
-                                Template-Editor
+                            {% if current_user.level == 'admin' %}
+                            <a href="{{ url_for('edit_report_templates') }}" class="px-3 py-2 rounded-md text-sm font-medium text-white bg-purple-600 hover:bg-purple-700 flex items-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                </svg>
+                                Template Editor
                             </a>
+                            {% endif %}
                             <a href="{{ url_for('logout') }}" class="px-3 py-2 rounded-md text-sm font-medium text-white bg-red-600 hover:bg-red-700 flex items-center">
                                 Logout
                             </a>
+                            <!-- Im Navigationsmenü, wo auch die anderen Buttons sind -->
+                            {% if current_user.is_authenticated and current_user.level == 'admin' %}
+                            <a href="{{ url_for('user_management') }}" class="px-3 py-2 rounded-md text-sm font-medium text-white bg-purple-600 hover:bg-purple-700 flex items-center">
+                                <!-- User Management Icon -->
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+                                </svg>
+                                Benutzerverwaltung
+                            </a>
+                            {% endif %}
                         {% else %}
                             <a href="{{ url_for('login') }}" class="px-3 py-2 rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 flex items-center">
                                 Login
