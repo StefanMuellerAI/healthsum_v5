@@ -117,6 +117,19 @@
                     </p>
                 </div>
 
+                <div>
+                    <label class="block text-lg font-medium text-gray-700 flex items-center">
+                        Custom Instructions beachten<br>
+                        <label class="custom-checkbox ml-2">
+                            <input type="checkbox" id="useCustomInstructions" name="useCustomInstructions">
+                            <span></span>
+                        </label>
+                    </label>
+                    <p class="text-sm text-gray-500">
+                        Aktivieren Sie diese Option, wenn die Custom Instructions des Datensatzes bei der Berichterstellung berücksichtigt werden sollen.
+                    </p>
+                </div>
+
                 <div class="flex space-x-4">
                     <button type="button" id="deleteButton" class="w-1/3 px-6 py-3 text-lg font-medium text-white bg-red-600 rounded-lg hover:bg-red-700">
                         Report löschen
@@ -197,6 +210,7 @@ function loadTemplate(templateId) {
         document.getElementById('systemPrompt').value = data.system_prompt;
         document.getElementById('prompt').value = data.prompt;
         document.getElementById('summarizer').checked = data.summarizer;
+        document.getElementById('useCustomInstructions').checked = data.use_custom_instructions;
 
         // Initiale Anzeige des Summarizer-Feldes
         toggleSummarizerField();
@@ -287,7 +301,8 @@ document.getElementById('templateForm').addEventListener('submit', function(even
         example_structure: document.getElementById('exampleStructure').value,
         system_prompt: document.getElementById('systemPrompt').value,
         prompt: document.getElementById('prompt').value,
-        summarizer: document.getElementById('summarizer').checked
+        summarizer: document.getElementById('summarizer').checked,
+        use_custom_instructions: document.getElementById('useCustomInstructions').checked
     };
 
     fetch('/update_template', {
@@ -315,7 +330,8 @@ document.getElementById('saveAsNewButton').addEventListener('click', function() 
         example_structure: document.getElementById('exampleStructure').value,
         system_prompt: document.getElementById('systemPrompt').value,
         prompt: document.getElementById('prompt').value,
-        summarizer: document.getElementById('summarizer').checked
+        summarizer: document.getElementById('summarizer').checked,
+        use_custom_instructions: document.getElementById('useCustomInstructions').checked
     };
 
     fetch('/create_template', {

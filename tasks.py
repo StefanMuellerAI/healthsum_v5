@@ -22,15 +22,38 @@ logger = logging.getLogger(__name__)
 celery = create_celery_app()
 
 @celery.task(bind=True)
-def process_pdfs(self, filenames, patient_name, record_id=None, create_reports=False, user_id=None):
-    start_time = datetime.utcnow()
-    logger.info(f"Starting process_pdfs task for files: {filenames}")
-    
-    original_task_id = self.request.id
-
-    socketio.emit('task_status', {'status':'process_pdfs_started','create_reports': create_reports}, namespace='/tasks')
-
+def process_pdfs(self, filenames, patient_name, record_id=None, create_reports=False, user_id=None, custom_instructions=None):
+    """
+    Verarbeitet PDF-Dateien und extrahiert den Text.
+    """
     try:
+        start_time = datetime.utcnow()  # Definiere start_time am Anfang der Funktion
+        logger.info(f"Starting process_pdfs task for files: {filenames}")
+        
+        # Sende Status-Update
+        socketio.emit('task_status', {
+            'status': 'process_pdfs_started',
+            'create_reports': create_reports
+        }, namespace='/tasks', room=self.request.id)
+        
+        # Erstelle einen neuen Datensatz oder hole einen existierenden
+        if record_id:
+            record = HealthRecord.query.get(record_id)
+            if not record:
+                raise Exception(f"Record with ID {record_id} not found")
+        else:
+            record = HealthRecord(
+                patient_name=patient_name,
+                create_reports=create_reports,
+                user_id=user_id,
+                custom_instructions=custom_instructions
+            )
+            db.session.add(record)
+            db.session.commit()
+            record_id = record.id
+
+        original_task_id = self.request.id
+
         extraction_tasks = []
 
         for i, filename in enumerate(filenames):
@@ -179,8 +202,16 @@ def combine_extractions(self, extraction_results, filenames, patient_name, recor
                 logger.error(f"Record with id {record_id} not found")
                 return {'status': 'error', 'message': 'Record not found'}
 
-            record.text += "\n\n" + combined_extractions
-            record.filenames += "," + ",".join(filenames)
+            if record.text is None:
+                record.text = combined_extractions
+            else:
+                record.text += "\n\n" + combined_extractions
+
+            # Filenames als String behandeln, da sie verschlüsselt sind
+            current_filenames = record.filenames if record.filenames else ""
+            new_filenames = ",".join(filenames)
+            record.filenames = current_filenames + ("," if current_filenames else "") + new_filenames
+
             record.token_count = count_tokens(record.text)
             record.timestamp = datetime.utcnow()
             record.create_reports = create_reports
@@ -189,7 +220,7 @@ def combine_extractions(self, extraction_results, filenames, patient_name, recor
         else:
             record = HealthRecord(
                 text=combined_extractions,
-                filenames=",".join(filenames),
+                filenames=",".join(filenames),  # Wird automatisch verschlüsselt
                 token_count=token_count,
                 patient_name=patient_name,
                 medical_history_begin=None,
@@ -314,12 +345,14 @@ def regenerate_report_task(self, report_id):
             template_name=template.template_name,
             output_format=template.output_format,
             example_structure=template.example_structure,
+            health_record_custom_instructions=health_record.custom_instructions,
             system_prompt=template.system_prompt,
             prompt=template.prompt,
             health_record_text=health_record.text,
             health_record_token_count=health_record.token_count,
             health_record_begin=health_record.medical_history_begin,
-            health_record_end=health_record.medical_history_end
+            health_record_end=health_record.medical_history_end,
+            use_custom_instructions=template.use_custom_instructions
         )
 
         # Aktualisieren des Berichts
@@ -373,12 +406,14 @@ def create_report(self, data, original_task_id=None):
                 template_name=template.template_name,
                 output_format=template.output_format,
                 example_structure=template.example_structure,
+                health_record_custom_instructions=health_record.custom_instructions,
                 system_prompt=template.system_prompt,
                 prompt=template.prompt,
                 health_record_text=health_record.text,
                 health_record_token_count=health_record.token_count,
                 health_record_begin=health_record.medical_history_begin,
-                health_record_end=health_record.medical_history_end
+                health_record_end=health_record.medical_history_end,
+                use_custom_instructions=template.use_custom_instructions
             )
 
             # Erstelle einen neuen Report
@@ -436,8 +471,10 @@ def generate_single_report(self, record_id, template_id):
            health_record_text=record.text,
            health_record_token_count=record.token_count,
            health_record_begin=record.medical_history_begin,
-           health_record_end=record.medical_history_end
-       )
+           health_record_end=record.medical_history_end,
+           health_record_custom_instructions=record.custom_instructions,
+           use_custom_instructions=template.use_custom_instructions
+       )    
 
        if report_content:
            new_report = Report(

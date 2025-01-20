@@ -62,51 +62,80 @@
         <div class="lg:w-1/2">
             <h2 class="text-3xl font-bold mb-6">Neuen Datensatz erstellen</h2>
             <h3 class="text-xl mb-6">Hier können Sie einen neuen Datensatz erstellen.</h3>
-            <form id="uploadForm" enctype="multipart/form-data" class="space-y-6 bg-white shadow-lg rounded-lg p-6">
-                <div class="space-y-4">
-                    <div>
-                        <label for="firstName" class="block text-lg font-medium text-gray-700">Vorname</label>
-                        <input type="text" id="firstName" name="firstName" required class="mt-1 block w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <div class="form-container relative">
+                <form id="uploadForm" enctype="multipart/form-data" class="space-y-6 bg-white shadow-lg rounded-lg p-6">
+                    <div class="space-y-4">
+                        <div>
+                            <label for="firstName" class="block text-lg font-medium text-gray-700">Vorname</label>
+                            <input type="text" id="firstName" name="firstName" required class="mt-1 block w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <div>
+                            <label for="lastName" class="block text-lg font-medium text-gray-700">Nachname</label>
+                            <input type="text" id="lastName" name="lastName" required class="mt-1 block w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <div class="flex items-center">
+                            <input id="createReports" name="createReports" type="checkbox" class="h-5 w-5 text-blue-600 focus:ring-blue-500 border-gray-300 rounded">
+                            <label for="createReports" class="ml-2 block text-lg text-gray-700">
+                                {% if report_templates > 1 %}
+                                    Alle {{ report_templates }} Berichte erstellen
+                                {% else %}
+                                    Alle Berichte erstellen
+                                {% endif %}
+                            </label>
+                        </div>
                     </div>
-                    <div>
-                        <label for="lastName" class="block text-lg font-medium text-gray-700">Nachname</label>
-                        <input type="text" id="lastName" name="lastName" required class="mt-1 block w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <div class="mt-6">
+                        <p class="text-lg text-gray-700 mb-2">Laden Sie bitte hier für Ihren Kunden die PDF-Dateien hoch.</p>
+                        <div class="flex items-center justify-center w-full">
+                            <label for="fileInput" class="flex flex-col items-center justify-center w-full h-64 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 transition duration-300">
+                                <div class="flex flex-col items-center justify-center pt-5 pb-6">
+                                    <svg class="w-12 h-12 mb-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                                    </svg>
+                                    <p class="mb-2 text-lg text-gray-500"><span class="font-semibold">Klicken Sie zum Hochladen</span> oder ziehen Sie Dateien hierher</p>
+                                    <p class="text-sm text-gray-500">PDF (MAX. 50MB)</p>
+                                </div>
+                                <input id="fileInput" type="file" name="files[]" class="hidden" multiple accept=".pdf" />
+                            </label>
+                        </div>
+                        <div id="fileList" class="mt-4 space-y-2"></div>
                     </div>
-                    <div class="flex items-center">
-                        <input id="createReports" name="createReports" type="checkbox" class="h-5 w-5 text-blue-600 focus:ring-blue-500 border-gray-300 rounded">
-                        <label for="createReports" class="ml-2 block text-lg text-gray-700">
-                            {% if report_templates > 1 %}
-                                Alle {{ report_templates }} Berichte erstellen
-                            {% else %}
-                                Alle Berichte erstellen
-                            {% endif %}
-                        </label>
+                    <div class="mt-4">
+                        <button type="button" 
+                                class="flex items-center justify-between w-full px-4 py-2 text-lg text-left text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                onclick="toggleCustomInstructions()">
+                            <span>Custom Instructions (Optional)</span>
+                            <svg id="customInstructionsArrow" class="w-5 h-5 transform transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                            </svg>
+                        </button>
+                        <div id="customInstructionsContainer" class="hidden mt-2">
+                            <textarea id="customInstructions" 
+                                    name="customInstructions" 
+                                    rows="4" 
+                                    class="w-full px-4 py-3 text-gray-700 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    placeholder="Geben Sie hier Ihre Custom Instructions ein..."></textarea>
+                        </div>
+                    </div>
+                    <button type="submit" id="uploadButton" class="w-full px-6 py-3 text-lg font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition duration-300 flex items-center justify-center">
+                        <svg id="uploadSpinner" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                        </svg>
+                        Hochladen & Verarbeiten
+                    </button>
+                </form>
+                <div id="processing-overlay" class="hidden fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center">
+                    <div class="bg-white p-6 rounded-lg shadow-xl max-w-md text-center">
+                        <svg class="mx-auto h-12 w-12 text-blue-500 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <h3 class="mt-4 text-lg font-semibold text-gray-900">Verarbeitung gestartet</h3>
+                        <p class="mt-2 text-gray-600">Die Dateien wurden erfolgreich hochgeladen und werden nun verarbeitet. Sie können dieses Fenster schließen - die Verarbeitung läuft im Hintergrund weiter.</p>
                     </div>
                 </div>
-                <div class="mt-6">
-                    <p class="text-lg text-gray-700 mb-2">Laden Sie bitte hier für Ihren Kunden die PDF-Dateien hoch.</p>
-                    <div class="flex items-center justify-center w-full">
-                        <label for="fileInput" class="flex flex-col items-center justify-center w-full h-64 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 transition duration-300">
-                            <div class="flex flex-col items-center justify-center pt-5 pb-6">
-                                <svg class="w-12 h-12 mb-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
-                                </svg>
-                                <p class="mb-2 text-lg text-gray-500"><span class="font-semibold">Klicken Sie zum Hochladen</span> oder ziehen Sie Dateien hierher</p>
-                                <p class="text-sm text-gray-500">PDF (MAX. 50MB)</p>
-                            </div>
-                            <input id="fileInput" type="file" name="files[]" class="hidden" multiple accept=".pdf" />
-                        </label>
-                    </div>
-                    <div id="fileList" class="mt-4 space-y-2"></div>
-                </div>
-                <button type="submit" id="uploadButton" class="w-full px-6 py-3 text-lg font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition duration-300 flex items-center justify-center">
-                    <svg id="uploadSpinner" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
-                    </svg>
-                    Hochladen & Verarbeiten
-                </button>
-            </form>
+            </div>
         </div>
     </div>
 </div>
@@ -118,33 +147,53 @@
         <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
         <div class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
             <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
-                <h3 class="text-lg leading-6 font-medium text-gray-900" id="modalUploadTitle">
-                    Neue Dokumente hinzufügen
-                </h3>
-                <form id="modalUploadForm" enctype="multipart/form-data" class="mt-4">
-                    <div class="flex items-center justify-center w-full">
-                        <label for="modalFileInput" class="flex flex-col items-center justify-center w-full h-64 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
-                            <div class="flex flex-col items-center justify-center pt-5 pb-6">
-                                <svg class="w-10 h-10 mb-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
-                                </svg>
-                                <p class="mb-2 text-sm text-gray-500"><span class="font-semibold">Klicken Sie zum Hochladen</span> oder ziehen Sie Dateien hierher</p>
-                                <p class="text-xs text-gray-500">PDF (MAX. 50MB)</p>
+                <div class="sm:flex sm:items-start">
+                    <div class="mt-3 text-center sm:mt-0 sm:text-left w-full">
+                        <h3 class="text-lg leading-6 font-medium text-gray-900" id="modal-title">
+                            Datensatz bearbeiten
+                        </h3>
+                        <form id="modalUploadForm" class="mt-4">
+                            <!-- Custom Instructions Section -->
+                            <div class="mb-4">
+                                <label for="modalCustomInstructions" class="block text-sm font-medium text-gray-700 mb-2">
+                                    Custom Instructions
+                                </label>
+                                <textarea 
+                                    id="modalCustomInstructions" 
+                                    name="customInstructions" 
+                                    rows="4" 
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                                    placeholder="Geben Sie hier Ihre Custom Instructions ein..."></textarea>
                             </div>
-                            <input id="modalFileInput" type="file" name="files[]" class="hidden" multiple accept=".pdf" />
-                        </label>
+
+                            <!-- File Upload Section -->
+                            <div class="mt-6">
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    Weitere PDF-Dateien (Optional)
+                                </label>
+                                <div class="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md">
+                                    <div class="space-y-1 text-center">
+                                        <svg class="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48" aria-hidden="true">
+                                            <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                                        </svg>
+                                        <div class="flex text-sm text-gray-600">
+                                            <label for="modalFileInput" class="relative cursor-pointer bg-white rounded-md font-medium text-blue-600 hover:text-blue-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500">
+                                                <span>PDF-Dateien hochladen</span>
+                                                <input id="modalFileInput" name="files[]" type="file" class="sr-only" multiple accept=".pdf">
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div id="modalFileList" class="mt-2 text-sm text-gray-500"></div>
+                            </div>
+                        </form>
                     </div>
-                    <div id="modalFileList" class="mt-2"></div>
-                    <button type="submit" class="mt-4 w-full px-4 py-2 text-white bg-blue-500 rounded hover:bg-blue-600 flex items-center justify-center">
-                        <svg id="modalUploadSpinner" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
-                        </svg>
-                        Hochladen
-                    </button>
-                </form>
+                </div>
             </div>
             <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                <button type="button" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm" onclick="saveChanges()">
+                    Speichern
+                </button>
                 <button type="button" class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm" onclick="closeUploadModal()">
                     Abbrechen
                 </button>
@@ -197,6 +246,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     const progressContainer = document.getElementById('progress-container');
     const progressBar = document.getElementById('progress-bar');
+    const progressText = document.getElementById('progress-text');
     const uploadButton = document.getElementById('uploadButton');
     const uploadSpinner = document.getElementById('uploadSpinner');
     const socket = io('/tasks', {
@@ -220,8 +270,12 @@ document.addEventListener('DOMContentLoaded', function() {
         const formData = new FormData(this);
         const uploadButton = this.querySelector('button[type="submit"]');
         const uploadSpinner = document.getElementById('uploadSpinner');
+        const customInstructions = document.getElementById('customInstructions');
 
-        // Button deaktivieren und Spinner anzeigen
+        if (customInstructions && customInstructions.value.trim()) {
+            formData.append('customInstructions', customInstructions.value.trim());
+        }
+
         uploadButton.disabled = true;
         if (uploadSpinner) {
             uploadSpinner.classList.remove('hidden');
@@ -233,26 +287,52 @@ document.addEventListener('DOMContentLoaded', function() {
         })
         .then(response => response.json())
         .then(data => {
-            if (data) {              
+            if (data.task_id) {
+                socket.emit('join_task_room', {task_id: data.task_id});
             } else {
                 console.error('Fehler beim Hochladen:', data.error);
                 alert('Fehler beim Hochladen: ' + data.error);
-                // Button wieder aktivieren und Spinner ausblenden
-                uploadButton.disabled = false;
-                if (uploadSpinner) {
-                    uploadSpinner.classList.add('hidden');
-                }
+                resetUploadUI();
             }
         })
         .catch(error => {
             console.error('Fehler:', error);
             alert('Fehler: ' + error);
-            // Button wieder aktivieren und Spinner ausblenden
-            uploadButton.disabled = false;
-            if (uploadSpinner) {
-                uploadSpinner.classList.add('hidden');
-            }
+            resetUploadUI();
         });
+    }
+
+    function resetFormAfterProcessing() {
+        resetUploadUI();
+        mainForm.reset();
+        mainFileList.innerHTML = '';
+    }
+
+    function showProcessingOverlay() {
+        const overlay = document.getElementById('processing-overlay');
+        overlay.classList.remove('hidden');
+        document.getElementById('uploadForm').style.opacity = '0.5';
+        document.getElementById('uploadForm').style.pointerEvents = 'none';
+    }
+
+    function resetUploadUI() {
+        const uploadButton = document.querySelector('button[type="submit"]');
+        const uploadSpinner = document.getElementById('uploadSpinner');
+        const overlay = document.getElementById('processing-overlay');
+        const form = document.getElementById('uploadForm');
+        
+        overlay.classList.add('hidden');
+        form.style.opacity = '1';
+        form.style.pointerEvents = 'auto';
+        uploadButton.disabled = false;
+        if (uploadSpinner) {
+            uploadSpinner.classList.add('hidden');
+        }
+    }
+
+    function updateProgress(percent) {
+        progressBar.style.width = percent + '%';
+        progressText.textContent = percent + '%';
     }
 
     function updateFileList(input, fileListElement) {
@@ -275,11 +355,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    function resetForm() {
-        mainForm.reset();
-        mainFileList.innerHTML = '';
-    }
-
     function refreshDatasetList() {
         fetch('/get_datasets')
         .then(response => response.json())
@@ -287,64 +362,22 @@ document.addEventListener('DOMContentLoaded', function() {
         .catch(error => console.error('Error refreshing dataset list:', error));
     }
 
-
-    socket.on('task_status', function(data) {   
-                   
+    socket.on('task_status', function(data) {
         if (data.status === 'process_pdfs_started') {
-            localStorage.setItem('create_reports', data.create_reports);
-            progressContainer.classList.remove('hidden');
-            console.log(data.create_reports);
-            console.log(localStorage.getItem('create_reports'));
-            animateProgressBar(15);           
+            showProcessingOverlay();
         } 
-        else if (data.status === 'process_pdfs_completed') {
-            animateProgressBar(35);
-        }
-        else if (data.status === 'combine_extractions_completed') {
-            animateProgressBar(50);
-        }     
-        else if (data.status === 'process_record_completed' && localStorage.getItem('create_reports') === "true") {
-            animateProgressBar(75);
-            refreshDatasetList();
-            uploadButton.disabled = false;
-            if (uploadSpinner) {
-                uploadSpinner.classList.add('hidden');
-            }
-            resetForm();
-        }
-        else if (data.status === 'process_record_completed' && localStorage.getItem('create_reports') === "false") {
-            animateProgressBar(100);
-            setTimeout(function() {
-                progressContainer.classList.add('hidden');
-                progressBar.style.width = '0%';
-            }, 1000);
-            uploadButton.disabled = false;
-            if (uploadSpinner) {
-                uploadSpinner.classList.add('hidden');
-            }
-            localStorage.removeItem('create_reports');
-            refreshDatasetList();
-            resetForm();
-        }
-        else if (data.status === 'create_report_completed') {
-            animateProgressBar(100);
-            setTimeout(function() {
-                progressContainer.classList.add('hidden');
-                progressBar.style.width = '0%';
-            }, 1000);
-            localStorage.removeItem('create_reports');
-        }
         else if (data.status === 'error') {
             console.error('Fehler:', data.message);
             alert('Fehler: ' + data.message);
-            localStorage.removeItem('create_reports');
+            resetUploadUI();
+        }
+        else if (data.status === 'create_report_completed') {
+            resetFormAfterProcessing();
+        }
+        else if (data.status === 'process_record_completed' && !document.getElementById('createReports').checked) {
+            resetFormAfterProcessing();
         }
     });
-
-    function animateProgressBar(targetWidth) {
-        progressBar.style.transition = 'width 0.5s ease-in-out';
-        progressBar.style.width = targetWidth + '%';
-    }
 
 });
 
@@ -360,9 +393,19 @@ function openModal(recordId) {
             <p><strong>Datensatz:</strong> ${data.patient_name || 'Unbekannt'}</p>
             <p><strong>Letzte Aktualisierung:</strong> ${formattedTimestamp}</p>
             <p><strong>Zeitraum:</strong> ${data.medical_history_begin && data.medical_history_end ? `${data.medical_history_begin} - ${data.medical_history_end}` : 'Nicht angegeben'}</p>
-            <p><strong>Berichte erstellen:</strong> ${data.create_reports ? 'Nein' : 'Ja'}</p>
-            <p><strong>Dateien:</strong></p>
-            <ul>${data.filenames ? data.filenames.split(',').map(filename => `<li>${filename.trim()}</li>`).join('') : 'Keine Dateien'}</ul>
+            <p><strong>Berichte:</strong> ${data.create_reports ? 'Ja' : 'Nein'}</p>
+            <div class="mt-4">
+                <p><strong>Custom Instructions:</strong></p>
+                <div class="mt-2 p-3 bg-gray-50 rounded-lg text-sm">
+                    ${data.custom_instructions ? data.custom_instructions.replace(/\n/g, '<br>') : 'Keine Custom Instructions definiert'}
+                </div>
+            </div>
+            <div class="mt-4">
+                <p><strong>Dateien:</strong></p>
+                <ul class="mt-2 list-disc list-inside">
+                    ${data.filenames ? data.filenames.split(',').map(filename => `<li class="text-sm">${filename.trim()}</li>`).join('') : 'Keine Dateien'}
+                </ul>
+            </div>
         `;
         document.getElementById('recordModal').classList.remove('hidden');
     })
@@ -376,6 +419,15 @@ function closeModal() {
 function addDocuments(recordId) {
     const modal = document.getElementById('uploadModal');
     const uploadForm = document.getElementById('modalUploadForm');
+    const customInstructionsField = document.getElementById('modalCustomInstructions');
+
+    // Hole aktuelle Custom Instructions für den Datensatz
+    fetch(`/get_record/${recordId}`)
+        .then(response => response.json())
+        .then(data => {
+            customInstructionsField.value = data.custom_instructions || '';
+        })
+        .catch(error => console.error('Error fetching record details:', error));
 
     let recordIdInput = uploadForm.querySelector('input[name="record_id"]');
     if (!recordIdInput) {
@@ -419,8 +471,10 @@ function deleteRecord(recordId) {
 function refreshDatasetList() {
     fetch('/get_datasets')
     .then(response => response.json())
-    .then(updateDatasetList)
-    .catch(error => console.error('Error refreshing dataset list:', error));
+    .then(data => {
+        updateDatasetList(data);
+    })
+    .catch(error => console.error('Fehler beim Aktualisieren der Datensatzliste:', error));
 }
 
 function updateDatasetList(data) {
@@ -473,15 +527,36 @@ function updateDatasetList(data) {
     });
 }
 
+function toggleCustomInstructions() {
+    const container = document.getElementById('customInstructionsContainer');
+    const arrow = document.getElementById('customInstructionsArrow');
+    
+    container.classList.toggle('hidden');
+    arrow.classList.toggle('rotate-180');
+}
 
+function saveChanges() {
+    const form = document.getElementById('modalUploadForm');
+    const formData = new FormData(form);
+    const recordId = form.querySelector('input[name="record_id"]').value;
 
-function refreshDatasetList() {
-    fetch('/get_datasets')
+    fetch(`/update_record/${recordId}`, {
+        method: 'POST',
+        body: formData
+    })
     .then(response => response.json())
     .then(data => {
-        updateDatasetList(data);
+        if (data.success) {
+            closeUploadModal();
+            refreshDatasetList();
+        } else {
+            alert('Fehler beim Speichern: ' + data.error);
+        }
     })
-    .catch(error => console.error('Fehler beim Aktualisieren der Datensatzliste:', error));
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Fehler beim Speichern');
+    });
 }
 
 </script>

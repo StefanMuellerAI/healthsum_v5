@@ -24,6 +24,59 @@
 <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.10.24/css/jquery.dataTables.css">
 <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/buttons/1.7.0/css/buttons.dataTables.min.css">
 
+<!-- Unsere überschreibenden Styles NACH den DataTables Styles -->
+<style type="text/css">
+    /* Spezifischere Selektoren für höhere Priorität */
+    table.dataTable#reportTable thead th,
+    table.dataTable#reportTable thead td {
+        text-align: left !important;
+        padding-left: 1rem !important;
+    }
+    
+    table.dataTable#reportTable tbody th,
+    table.dataTable#reportTable tbody td {
+        text-align: left !important;
+        padding-left: 1rem !important;
+    }
+    
+    /* Scrollbody Container */
+    div.dataTables_scrollBody {
+        text-align: left !important;
+    }
+    
+    /* Wrapper Container */
+    div.dataTables_wrapper {
+        width: 100%;
+        margin: 0 auto;
+        text-align: left !important;
+    }
+    
+    /* Haupttabelle */
+    table.dataTable#reportTable {
+        margin: 0 !important;
+        border-collapse: collapse;
+        width: 100% !important;
+    }
+    
+    /* Zellen */
+    table.dataTable#reportTable th,
+    table.dataTable#reportTable td {
+        white-space: normal;
+        min-width: 100px;
+    }
+    
+    /* Scroll Container */
+    div.dataTables_scroll {
+        text-align: left !important;
+    }
+    
+    /* Suchfeld Container */
+    div.dataTables_filter {
+        text-align: left !important;
+        margin-bottom: 1rem;
+    }
+</style>
+
 <!-- jQuery -->
 <script type="text/javascript" charset="utf8" src="https://code.jquery.com/jquery-3.5.1.js"></script>
 

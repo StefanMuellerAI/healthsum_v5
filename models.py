@@ -13,7 +13,7 @@ class HealthRecord(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
     text = db.Column(EncryptedType(db.Text, lambda: current_app.config['SECRET_KEY'], AesEngine, 'pkcs5'))
-    filenames = db.Column(db.Text)
+    filenames = db.Column(EncryptedType(db.Text, lambda: current_app.config['SECRET_KEY'], AesEngine, 'pkcs5'))
     token_count = db.Column(db.Integer)
     patient_name = db.Column(EncryptedType(db.String(100), lambda: current_app.config['SECRET_KEY'], AesEngine, 'pkcs5'))
     medical_history_begin = db.Column(db.DateTime)
@@ -21,6 +21,7 @@ class HealthRecord(db.Model):
     create_reports = db.Column(db.Boolean, default=False)
     expiration_date = db.Column(db.DateTime, nullable=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    custom_instructions = db.Column(EncryptedType(db.Text, lambda: current_app.config['SECRET_KEY'], AesEngine, 'pkcs5'), nullable=True)
     
     user = db.relationship('User', back_populates='health_records')
     reports = db.relationship('Report', back_populates='health_record', cascade='all, delete-orphan')
@@ -47,6 +48,7 @@ class ReportTemplate(db.Model):
     summarizer = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     last_updated = db.Column(db.DateTime, nullable=True)
+    use_custom_instructions = db.Column(db.Boolean, nullable=True)
     
     reports = db.relationship('Report', back_populates='report_template', cascade='all, delete-orphan')
 

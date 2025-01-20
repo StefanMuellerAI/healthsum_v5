@@ -73,7 +73,8 @@ def upload_file():
 
     record_id = request.form.get('record_id')
     create_reports = request.form.get('createReports') == 'on'
-    user_id = current_user.id  # Aktuelle Benutzer-ID ermitteln
+    custom_instructions = request.form.get('customInstructions')
+    user_id = current_user.id
 
     if record_id:
         # Dokumente zu einem bestehenden Datensatz hinzufügen
@@ -102,8 +103,15 @@ def upload_file():
     if filenames:
         logger.info(f"Starting process_pdfs task for files: {filenames}")
 
-        # Starte den process_pdfs Task und übergebe die user_id
-        result = process_pdfs.delay(filenames, patient_name, record_id, create_reports, user_id)
+        # Starte den process_pdfs Task und übergebe die user_id und custom_instructions
+        result = process_pdfs.delay(
+            filenames, 
+            patient_name, 
+            record_id, 
+            create_reports, 
+            user_id,
+            custom_instructions
+        )
 
         logger.info(f"Started process_pdfs task for patient: {patient_name}")
 
@@ -132,7 +140,8 @@ def get_datasets():
             'patient_name': record.patient_name,
             'create_reports': record.create_reports,
             'medical_history_begin': record.medical_history_begin.year if record.medical_history_begin else None,
-            'medical_history_end': record.medical_history_end.year if record.medical_history_end else None
+            'medical_history_end': record.medical_history_end.year if record.medical_history_end else None,
+            'custom_instructions': record.custom_instructions
         } for record in records
     ])
 
@@ -160,7 +169,9 @@ def get_record(record_id):
         'filenames': record.filenames,
         'patient_name': record.patient_name or 'Unbekannter Patient',
         'medical_history_begin': record.medical_history_begin.year if record.medical_history_begin else None,
-        'medical_history_end': record.medical_history_end.year if record.medical_history_end else None
+        'medical_history_end': record.medical_history_end.year if record.medical_history_end else None,
+        'create_reports': record.create_reports,
+        'custom_instructions': record.custom_instructions or 'Keine Custom Instructions definiert'
     }), 200
 
 
@@ -347,34 +358,30 @@ def get_template(template_id):
         'example_structure': template.example_structure,
         'system_prompt': template.system_prompt,
         'prompt': template.prompt,
-        'summarizer': template.summarizer
+        'summarizer': template.summarizer,
+        'use_custom_instructions': template.use_custom_instructions
     })
 
 @app.route('/update_template', methods=['POST'])
 @login_required
 def update_template():
-    if current_user.level != 'admin':
-        abort(403)
     data = request.get_json()
-    if not data or 'id' not in data:
-        return jsonify({'error': 'Ungültige Daten'}), 400
-
-    template_id = data['id']
-    template = ReportTemplate.query.get_or_404(template_id)
-    template.template_name = data.get('template_name', template.template_name)
-    template.output_format = data.get('output_format', template.output_format)
-    template.example_structure = data.get('example_structure', template.example_structure)
-    template.system_prompt = data.get('system_prompt', template.system_prompt)
-    template.prompt = data.get('prompt', template.prompt)
-    template.summarizer = data.get('summarizer', template.summarizer)
-    template.last_updated = datetime.utcnow()
-
+    template = ReportTemplate.query.get_or_404(data['id'])
     try:
+        template.template_name = data['template_name']
+        template.output_format = data['output_format']
+        template.example_structure = data['example_structure']
+        template.system_prompt = data['system_prompt']
+        template.prompt = data['prompt']
+        template.summarizer = data['summarizer']
+        template.use_custom_instructions = data['use_custom_instructions']
+        template.last_updated = datetime.utcnow()
+        
         db.session.commit()
-        return jsonify({'message': 'Template erfolgreich aktualisiert'}), 200
+        return jsonify({'success': True})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/regenerate_report/<int:report_id>', methods=['POST'])
 @login_required
@@ -393,26 +400,22 @@ def regenerate_report_route(report_id):
 @login_required
 def create_template():
     data = request.get_json()
-    if not data:
-        return jsonify({'error': 'Ungültige Daten'}), 400
-
-    new_template = ReportTemplate(
-        template_name=data.get('template_name'),
-        output_format=data.get('output_format'),
-        example_structure=data.get('example_structure'),
-        system_prompt=data.get('system_prompt'),
-        prompt=data.get('prompt'),
-        summarizer=data.get('summarizer'),
-        created_at=datetime.utcnow()
-    )
-
-    db.session.add(new_template)
     try:
+        template = ReportTemplate(
+            template_name=data['template_name'],
+            output_format=data['output_format'],
+            example_structure=data['example_structure'],
+            system_prompt=data['system_prompt'],
+            prompt=data['prompt'],
+            summarizer=data['summarizer'],
+            use_custom_instructions=data['use_custom_instructions']
+        )
+        db.session.add(template)
         db.session.commit()
-        return jsonify({'message': 'Template erfolgreich erstellt', 'template_id': new_template.id}), 201
+        return jsonify({'success': True})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'success': False, 'error': str(e)})
     
 
 # Fügen Sie folgende Route hinzu
@@ -614,6 +617,51 @@ def delete_user(user_id):
         print(f"Error deleting user: {str(e)}")  # Für Debugging
     
     return redirect(url_for('user_management'))
+
+@app.route('/update_record/<int:record_id>', methods=['POST'])
+@login_required
+def update_record(record_id):
+    record = HealthRecord.query.get_or_404(record_id)
+    if record.user_id != current_user.id:
+        abort(403)
+
+    try:
+        # Update Custom Instructions
+        custom_instructions = request.form.get('customInstructions')
+        if custom_instructions is not None:
+            record.custom_instructions = custom_instructions
+
+        # Handle file upload if files are included
+        if 'files[]' in request.files:
+            files = request.files.getlist('files[]')
+            filenames = []
+            
+            for file in files:
+                if file and file.filename.endswith('.pdf'):
+                    filename = secure_filename(file.filename)
+                    file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                    file.save(file_path)
+                    filenames.append(filename)
+
+            if filenames:
+                # Starte den process_pdfs Task nur für neue Dateien
+                result = process_pdfs.delay(
+                    filenames,
+                    record.patient_name,
+                    record.id,
+                    record.create_reports,
+                    record.user_id,
+                    record.custom_instructions
+                )
+                return jsonify({'success': True, 'task_id': result.id})
+
+        # Wenn keine Dateien hochgeladen wurden, speichere nur die Custom Instructions
+        db.session.commit()
+        return jsonify({'success': True})
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)})
 
 if __name__ == '__main__':
     with app.app_context():
