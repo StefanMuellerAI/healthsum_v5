@@ -99,202 +99,131 @@ def clean_json_response(response_content):
         response_content = response_content[7:-3].strip()
     return response_content
 
-# Funktion für die Erstellung des Berichts mit GPT-4
-def generate_report_gpt4(output_format, example_structure, system_prompt, prompt, health_record_text, year, health_record_custom_instructions, use_custom_instructions):
+# Neue Hilfsfunktion zum Abrufen und Formatieren der medizinischen Codes
+def get_formatted_medical_codes(record_id):
     """
-    Generiert einen Gesundheitsbericht für ein bestimmtes Jahr mit GPT-4.
+    Ruft die medizinischen Codes für einen Health Record ab und formatiert sie
+    für die Verwendung in Prompts
+    
+    :param record_id: ID des Health Records
+    :return: Formatierter String mit Codes und Beschreibungen
     """
-    logger.info(f"Erstelle Bericht für Jahr {year} mit GPT-4.")
-    
-    if not use_custom_instructions:
-        year_focussed_actual_prompt = (
-        f"Follow this role: {system_prompt}\n\n"
-        f"Follow this task: {prompt}\n\n"
-        f"You give your output in this format: {output_format}\n\n"
-        f"Extremely important: Create a report for and only contain data for the year {year}.\n\n"
-    )
-    else:
-        year_focussed_actual_prompt = (
-        f"Follow this role: {system_prompt}\n\n"
-        f"Follow this task: {prompt}\n\n"
-        f"You give your output in this format: {output_format}\n\n"
-        f"Extremely important: Create a report for and only contain data for the year {year}.\n\n"
-        f"Consider the following additional important information for the analysis of the dataset: {health_record_custom_instructions}\n\n"
-    )
-
-    
-
-    # Basis-Parameter für die API-Anfrage
-    api_params = {
-        "model": openai_model,
-        "messages": [
-            {"role": "system", "content": year_focussed_actual_prompt},
-            {"role": "user", "content": f"Das ist deine Datenbasis: {health_record_text}"}
-        ],
-        "temperature": 0.7,
-        "max_tokens": 16000,
-    }
-
-    if output_format.lower() == "json":
-        api_params["response_format"] = {"type": "json_object"}
-
     try:
-        # Verwende die neue Retry-Funktion
-        response = make_openai_request(api_params)
-        response_content = response.choices[0].message.content.strip()
-        logger.info(f"GPT-4 API-Antwort erhalten: {response_content[:100]}...")
-
-        if output_format.lower() == "json":
-            response_content = clean_json_response(response_content)
-            
-            # Extrahiere den ersten Schlüssel aus der Beispielstruktur
-            example_structure_json = json.loads(example_structure)
-            first_key = next(iter(example_structure_json.keys()))
-
-            # Parsen des JSON
-            try:
-                json_data = json.loads(response_content)
-                logger.info(f"GPT-4 JSON erfolgreich geparst für Jahr {year}.")
-            except json.JSONDecodeError as json_err:
-                logger.error(f"Fehler beim Parsen des JSON von GPT-4 für Jahr {year}: {json_err}")
-                return None
-
-            # Extrahieren der Daten aus dem ersten Schlüssel
-            data = json_data.get(first_key, [])
-
-            # Bereinigung von Whitespaces
-            for item in data:
-                for key, value in item.items():
-                    if isinstance(value, str):
-                        item[key] = value.strip()
-
-            # Konvertiere in DataFrame für einfache Sortierung, falls möglich
-            df = pd.DataFrame(data)
-
-            if 'Datum' in df.columns:
-                df['Datum'] = pd.to_datetime(df['Datum'])
-                df_sorted = df.sort_values('Datum')
-            else:
-                df_sorted = df
-
-            return df_sorted
-
-        else:
-            # Wenn das Ausgabeformat Text ist, gib den Text zurück
-            logger.info(f"Textbericht für Jahr {year} erhalten.")
-            return response_content
-
+        from models import MedicalCode  # Import hier, um zirkuläre Importe zu vermeiden
+        
+        codes = MedicalCode.query.filter_by(health_record_id=record_id).all()
+        if not codes:
+            logger.info(f"Keine medizinischen Codes gefunden für Record {record_id}")
+            return ""
+        
+        formatted_codes = "Medizinische Codes:\n"
+        
+        # Gruppieren nach Code-Typ
+        icd10_codes = [c for c in codes if c.code_type == 'ICD10']
+        icd11_codes = [c for c in codes if c.code_type == 'ICD11']
+        ops_codes = [c for c in codes if c.code_type == 'OPS']
+        
+        # ICD-10 Codes formatieren
+        if icd10_codes:
+            formatted_codes += "\nICD-10 Codes:\n"
+            for code in icd10_codes:
+                desc = f" - {code.description}" if code.description else ""
+                formatted_codes += f"- {code.code}{desc}\n"
+        
+        # ICD-11 Codes formatieren
+        if icd11_codes:
+            formatted_codes += "\nICD-11 Codes:\n"
+            for code in icd11_codes:
+                desc = f" - {code.description}" if code.description else ""
+                formatted_codes += f"- {code.code}{desc}\n"
+        
+        # OPS Codes formatieren
+        if ops_codes:
+            formatted_codes += "\nOPS Codes:\n"
+            for code in ops_codes:
+                desc = f" - {code.description}" if code.description else ""
+                formatted_codes += f"- {code.code}{desc}\n"
+        
+        return formatted_codes
     except Exception as e:
-        logger.error(f"Fehler bei der Verarbeitung mit GPT-4: {e}")
-        return None
+        logger.error(f"Fehler beim Abrufen der medizinischen Codes: {e}")
+        return ""
 
-# Funktion für die Erstellung des Berichts mit Google Gemini
-def generate_report_gemini(output_format, example_structure, system_prompt, prompt, health_record_text, year, health_record_custom_instructions, use_custom_instructions):
+# Funktion für die Erstellung des Berichts mit GPT-4
+def generate_report_gpt4(output_format, example_structure, system_prompt, prompt, health_record_text, year, health_record_custom_instructions, use_custom_instructions, record_id=None, medical_codes_text=None):
     """
-    Generiert einen Gesundheitsbericht für ein bestimmtes Jahr mit Google Gemini.
+    Generiert einen Bericht für ein spezifisches Jahr mit GPT-4
     """
-    logger.info(f"Erstelle Bericht für Jahr {year} mit Google Gemini.")
-    
-    if not use_custom_instructions:
-        year_focussed_actual_prompt = (
-        f"Follow this role: {system_prompt}\n\n"
-        f"Follow this task: {prompt}\n\n"
-        f"You give your output in this format: {output_format}\n\n"
-        f"Extremely important: Create a report for and only contain data for the year {year}.\n\n"
-    )
-    else:
-        year_focussed_actual_prompt = (
-        f"Follow this role: {system_prompt}\n\n"
-        f"Follow this task: {prompt}\n\n"
-        f"You give your output in this format: {output_format}\n\n"
-        f"Extremely important: Create a report for and only contain data for the year {year}.\n\n"
-        f"Consider the following additional important information for the analysis of the dataset: {health_record_custom_instructions}\n\n"
-    )
-
-
-    logger.info(f"Gemini Prompt: {year_focussed_actual_prompt}")
-    logger.info(f"Gemini Model: {os.environ['GEMINI_MODEL']}")
-
-
-    
     try:
-        if output_format.lower() == "json":
-            # Strukturiertes JSON Output Schema
-            generation_config = {
-                "temperature": 0.2,
-                "max_output_tokens": 8192,
-                "response_schema": content.Schema(
-                    type=content.Type.OBJECT,
-                    enum=[],
-                    required=["Bericht"],
-                    properties={
-                        "Bericht": content.Schema(
-                            type=content.Type.ARRAY,
-                            items=content.Schema(
-                                type=content.Type.OBJECT,
-                                enum=[],
-                                required=["Datum", "Code", "Diagnose", "Beschreibung", "Arzt"],
-                                properties={
-                                    "Datum": content.Schema(
-                                        type=content.Type.STRING,
-                                    ),
-                                    "Code": content.Schema(
-                                        type=content.Type.STRING,
-                                    ),
-                                    "Diagnose": content.Schema(
-                                        type=content.Type.STRING,
-                                    ),
-                                    "Beschreibung": content.Schema(
-                                        type=content.Type.STRING,
-                                    ),
-                                    "Arzt": content.Schema(
-                                        type=content.Type.STRING,
-                                    ),
-                                },
-                            ),
-                        ),
-                    },
-                ),
-                "response_mime_type": "application/json",
-            }
+        logger.info(f"Starte GPT-4 Bericht für Jahr {year}")
+        
+        if not use_custom_instructions:
+            year_focussed_actual_prompt = (
+            f"Follow this role: {system_prompt}\n\n"
+            f"Follow this task: {prompt}\n\n"
+            f"Use this medical codes: {medical_codes_text}\n\n"
+            f"You give your output in this format: {output_format}\n\n"
+            f"Extremely important: Create a report for and only contain data for the year {year}.\n\n"
+        )
         else:
-            # Einfache Konfiguration für Text-Output
-            generation_config = {
-                "temperature": 1
-            }
-
-        gemini_model = genai.GenerativeModel(
-            model_name=os.environ["GEMINI_MODEL"],
-            generation_config=generation_config
+            year_focussed_actual_prompt = (
+            f"Follow this role: {system_prompt}\n\n"
+            f"Follow this task: {prompt}\n\n"
+            f"This medical codes are already extracted: {medical_codes_text}\n\n"
+            f"You give your output in this format: {output_format}\n\n"
+            f"Extremely important: Create a report for and only contain data for the year {year}.\n\n"
+            f"Consider the following additional important information for the analysis of the dataset: {health_record_custom_instructions}\n\n"
         )
 
-        chat_session = gemini_model.start_chat(
-            history=[]
-        )
+        
 
-        response = chat_session.send_message(
-            f"{year_focussed_actual_prompt}\n\nDas ist deine Datenbasis: {health_record_text}",
-        )
-        response_text = response.text.strip()
-        logger.info(f"Google Gemini API-Antwort erhalten: {response_text[:100]}...")
+        # Basis-Parameter für die API-Anfrage
+        api_params = {
+            "model": openai_model,
+            "messages": [
+                {"role": "system", "content": year_focussed_actual_prompt},
+                {"role": "user", "content": f"Das ist deine Datenbasis: {health_record_text}"}
+            ],
+            "temperature": 0.7,
+            "max_tokens": 16000,
+        }
 
         if output_format.lower() == "json":
-            try:
-                json_data = json.loads(response_text)
-                logger.info(f"Google Gemini JSON erfolgreich geparst für Jahr {year}.")
+            api_params["response_format"] = {"type": "json_object"}
+
+        try:
+            # Verwende die neue Retry-Funktion
+            response = make_openai_request(api_params)
+            response_content = response.choices[0].message.content.strip()
+            logger.info(f"GPT-4 API-Antwort erhalten: {response_content[:100]}...")
+
+            if output_format.lower() == "json":
+                response_content = clean_json_response(response_content)
                 
-                # Extrahiere die Daten direkt aus dem "Bericht" Schlüssel
-                data = json_data.get("Bericht", [])
-                
+                # Extrahiere den ersten Schlüssel aus der Beispielstruktur
+                example_structure_json = json.loads(example_structure)
+                first_key = next(iter(example_structure_json.keys()))
+
+                # Parsen des JSON
+                try:
+                    json_data = json.loads(response_content)
+                    logger.info(f"GPT-4 JSON erfolgreich geparst für Jahr {year}.")
+                except json.JSONDecodeError as json_err:
+                    logger.error(f"Fehler beim Parsen des JSON von GPT-4 für Jahr {year}: {json_err}")
+                    return None
+
+                # Extrahieren der Daten aus dem ersten Schlüssel
+                data = json_data.get(first_key, [])
+
                 # Bereinigung von Whitespaces
                 for item in data:
                     for key, value in item.items():
                         if isinstance(value, str):
                             item[key] = value.strip()
 
-                # Konvertiere in DataFrame
+                # Konvertiere in DataFrame für einfache Sortierung, falls möglich
                 df = pd.DataFrame(data)
-                
+
                 if 'Datum' in df.columns:
                     df['Datum'] = pd.to_datetime(df['Datum'])
                     df_sorted = df.sort_values('Datum')
@@ -303,20 +232,155 @@ def generate_report_gemini(output_format, example_structure, system_prompt, prom
 
                 return df_sorted
 
-            except json.JSONDecodeError as json_err:
-                logger.error(f"Fehler beim Parsen des JSON von Google Gemini für Jahr {year}: {json_err}")
-                return None
+            else:
+                # Wenn das Ausgabeformat Text ist, gib den Text zurück
+                logger.info(f"Textbericht für Jahr {year} erhalten.")
+                return response_content
 
+        except Exception as e:
+            logger.error(f"Fehler bei der Verarbeitung mit GPT-4: {e}")
+            return None
+
+    except Exception as e:
+        logger.error(f"Fehler bei der Verarbeitung mit GPT-4: {e}")
+        return None
+
+# Funktion für die Erstellung des Berichts mit Google Gemini
+def generate_report_gemini(output_format, example_structure, system_prompt, prompt, health_record_text, year, health_record_custom_instructions, use_custom_instructions, record_id=None, medical_codes_text=None):
+    """
+    Generiert einen Bericht für ein spezifisches Jahr mit Google Gemini
+    """
+    try:
+        logger.info(f"Starte Gemini Bericht für Jahr {year}")
+        
+        if not use_custom_instructions:
+            year_focussed_actual_prompt = (
+            f"Follow this role: {system_prompt}\n\n"
+            f"Follow this task: {prompt}\n\n"
+            f"Use this medical codes: {medical_codes_text}\n\n"
+            f"You give your output in this format: {output_format}\n\n"
+            f"Extremely important: Create a report for and only contain data for the year {year}.\n\n"
+        )
         else:
-            logger.info(f"Textbericht für Jahr {year} erhalten.")
-            return response_text
+            year_focussed_actual_prompt = (
+            f"Follow this role: {system_prompt}\n\n"
+            f"Follow this task: {prompt}\n\n"
+            f"This medical codes are already extracted: {medical_codes_text}\n\n"
+            f"You give your output in this format: {output_format}\n\n"
+            f"Extremely important: Create a report for and only contain data for the year {year}.\n\n"
+            f"Consider the following additional important information for the analysis of the dataset: {health_record_custom_instructions}\n\n"
+        )
+
+
+        logger.info(f"Gemini Prompt: {year_focussed_actual_prompt}")
+        logger.info(f"Gemini Model: {os.environ['GEMINI_MODEL']}")
+
+
+        
+        try:
+            if output_format.lower() == "json":
+                # Strukturiertes JSON Output Schema
+                generation_config = {
+                    "temperature": 0.2,
+                    "max_output_tokens": 8192,
+                    "response_schema": content.Schema(
+                        type=content.Type.OBJECT,
+                        enum=[],
+                        required=["Bericht"],
+                        properties={
+                            "Bericht": content.Schema(
+                                type=content.Type.ARRAY,
+                                items=content.Schema(
+                                    type=content.Type.OBJECT,
+                                    enum=[],
+                                    required=["Datum", "Code", "Diagnose", "Beschreibung", "Arzt"],
+                                    properties={
+                                        "Datum": content.Schema(
+                                            type=content.Type.STRING,
+                                        ),
+                                        "Code": content.Schema(
+                                            type=content.Type.STRING,
+                                        ),
+                                        "Diagnose": content.Schema(
+                                            type=content.Type.STRING,
+                                        ),
+                                        "Beschreibung": content.Schema(
+                                            type=content.Type.STRING,
+                                        ),
+                                        "Arzt": content.Schema(
+                                            type=content.Type.STRING,
+                                        ),
+                                    },
+                                ),
+                            ),
+                        },
+                    ),
+                    "response_mime_type": "application/json",
+                }
+            else:
+                # Einfache Konfiguration für Text-Output
+                generation_config = {
+                    "temperature": 1
+                }
+
+            gemini_model = genai.GenerativeModel(
+                model_name=os.environ["GEMINI_MODEL"],
+                generation_config=generation_config
+            )
+
+            chat_session = gemini_model.start_chat(
+                history=[]
+            )
+
+            response = chat_session.send_message(
+                f"{year_focussed_actual_prompt}\n\nDas ist deine Datenbasis: {health_record_text}",
+            )
+            response_text = response.text.strip()
+            logger.info(f"Google Gemini API-Antwort erhalten: {response_text[:100]}...")
+
+            if output_format.lower() == "json":
+                try:
+                    json_data = json.loads(response_text)
+                    logger.info(f"Google Gemini JSON erfolgreich geparst für Jahr {year}.")
+                    
+                    # Extrahiere die Daten direkt aus dem "Bericht" Schlüssel
+                    data = json_data.get("Bericht", [])
+                    
+                    # Bereinigung von Whitespaces
+                    for item in data:
+                        for key, value in item.items():
+                            if isinstance(value, str):
+                                item[key] = value.strip()
+
+                    # Konvertiere in DataFrame
+                    df = pd.DataFrame(data)
+                    
+                    if 'Datum' in df.columns:
+                        df['Datum'] = pd.to_datetime(df['Datum'])
+                        df_sorted = df.sort_values('Datum')
+                    else:
+                        df_sorted = df
+
+                    return df_sorted
+
+                except json.JSONDecodeError as json_err:
+                    logger.error(f"Fehler beim Parsen des JSON von Google Gemini für Jahr {year}: {json_err}")
+                    return None
+
+            else:
+                logger.info(f"Textbericht für Jahr {year} erhalten.")
+                return response_text
+
+        except Exception as e:
+            logger.error(f"Fehler bei der Verarbeitung mit Google Gemini: {e}")
+            return None
 
     except Exception as e:
         logger.error(f"Fehler bei der Verarbeitung mit Google Gemini: {e}")
         return None
 
 # Hauptfunktion zur Generierung des Berichts
-def generate_report(template_name, output_format, example_structure, system_prompt, prompt, health_record_text, health_record_token_count, health_record_begin, health_record_end, health_record_custom_instructions, use_custom_instructions):
+def generate_report(template_name, output_format, example_structure, system_prompt, prompt, health_record_text, health_record_token_count, health_record_begin, health_record_end, health_record_custom_instructions, use_custom_instructions, record_id=None, medical_codes_text=None):
     """
     Generiert einen kombinierten Gesundheitsbericht für den angegebenen Zeitraum (mehrere Jahre).
     """
@@ -326,7 +390,8 @@ def generate_report(template_name, output_format, example_structure, system_prom
     text_reports = []
 
     # Entscheide, ob GPT-4 oder Gemini verwendet wird
-    use_gemini = health_record_token_count > token_threshold
+    # use_gemini = health_record_token_count > token_threshold
+    use_gemini = True
     if use_gemini:
         logger.info(f"Verwende Google Gemini aufgrund der Token-Anzahl: {health_record_token_count}")
     else:
@@ -343,11 +408,15 @@ def generate_report(template_name, output_format, example_structure, system_prom
         try:
             if use_gemini:
                 yearly_report = generate_report_gemini(
-                    output_format, example_structure, system_prompt, prompt, health_record_text, year, health_record_custom_instructions, use_custom_instructions
+                    output_format, example_structure, system_prompt, 
+                    prompt, health_record_text, year, health_record_custom_instructions, 
+                    use_custom_instructions, record_id, medical_codes_text
                 )
             else:
                 yearly_report = generate_report_gpt4(
-                    output_format, example_structure, system_prompt, prompt, health_record_text, year, health_record_custom_instructions, use_custom_instructions
+                    output_format, example_structure, system_prompt,
+                    prompt, health_record_text, year, health_record_custom_instructions,
+                    use_custom_instructions, record_id, medical_codes_text
                 )
 
             if yearly_report is not None:

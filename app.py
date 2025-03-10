@@ -9,7 +9,7 @@ from flask_socketio import SocketIO, emit, join_room
 from celery_config import create_celery_app
 from models import db, HealthRecord, Report, User, ReportTemplate, TaskMonitor
 from celery import chain
-from tasks import process_pdfs, create_report, process_record, regenerate_report_task, generate_single_report
+from tasks import process_pdfs, create_report, process_record, regenerate_report_task, generate_single_report, extract_medical_codes, parse_medical_codes_xml, save_medical_codes, update_medical_codes_descriptions
 from datetime import datetime
 from flask_login import login_user, login_required, logout_user, LoginManager, current_user
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -17,6 +17,8 @@ from celery.app.control import Inspect
 from extensions import socketio
 from celery.result import AsyncResult
 from sqlalchemy.exc import IntegrityError
+import re
+from utils import count_tokens
 
 #Todo:
 # - Userid beim create, read, edit und delete von DAtensätzen und Berichten hinzufügen. 
@@ -27,8 +29,19 @@ def format_timestamp(timestamp):
     return timestamp.strftime('%Y-%m-%d %H:%M')
 
 # Konfigurieren des Loggings
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler()
+    ]
+)
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
+# Flask's Werkzeug Logger auch auf DEBUG setzen
+werkzeug_logger = logging.getLogger('werkzeug')
+werkzeug_logger.setLevel(logging.DEBUG)
 
 app = Flask(__name__)
 
@@ -74,7 +87,17 @@ def upload_file():
     record_id = request.form.get('record_id')
     create_reports = request.form.get('createReports') == 'on'
     custom_instructions = request.form.get('customInstructions')
+    birth_date_str = request.form.get('birthDate')  # Neues Feld
     user_id = current_user.id
+
+    # Konvertiere birth_date_str zu datetime oder None
+    birth_date = None
+    if birth_date_str:
+        try:
+            birth_date = datetime.strptime(birth_date_str, '%Y-%m-%d')
+        except ValueError:
+            logger.warning("Invalid birth date format")
+            return jsonify({'error': 'Invalid birth date format'}), 400
 
     if record_id:
         # Dokumente zu einem bestehenden Datensatz hinzufügen
@@ -103,14 +126,15 @@ def upload_file():
     if filenames:
         logger.info(f"Starting process_pdfs task for files: {filenames}")
 
-        # Starte den process_pdfs Task und übergebe die user_id und custom_instructions
+        # Starte den process_pdfs Task und übergebe die user_id, custom_instructions und birth_date
         result = process_pdfs.delay(
             filenames, 
             patient_name, 
             record_id, 
             create_reports, 
             user_id,
-            custom_instructions
+            custom_instructions,
+            birth_date
         )
 
         logger.info(f"Started process_pdfs task for patient: {patient_name}")
@@ -141,7 +165,8 @@ def get_datasets():
             'create_reports': record.create_reports,
             'medical_history_begin': record.medical_history_begin.year if record.medical_history_begin else None,
             'medical_history_end': record.medical_history_end.year if record.medical_history_end else None,
-            'custom_instructions': record.custom_instructions
+            'custom_instructions': record.custom_instructions,
+            'birth_date': record.birth_date.isoformat() if record.birth_date else None
         } for record in records
     ])
 
@@ -168,6 +193,7 @@ def get_record(record_id):
         'timestamp': format_timestamp(record.timestamp),
         'filenames': record.filenames,
         'patient_name': record.patient_name or 'Unbekannter Patient',
+        'birth_date': record.birth_date.isoformat() if record.birth_date else None,
         'medical_history_begin': record.medical_history_begin.year if record.medical_history_begin else None,
         'medical_history_end': record.medical_history_end.year if record.medical_history_end else None,
         'create_reports': record.create_reports,
@@ -279,9 +305,17 @@ def view_report(report_id):
             return render_template('view_report_json.html', report=report)
     return jsonify({"error": "Report nicht gefunden"}), 404
 
+@app.template_filter('format_date')
+def format_date_filter(date):
+    if isinstance(date, datetime):
+        return date.strftime('%d.%m.%Y')
+    return ''
+
 @app.template_filter('format_timestamp')
 def format_timestamp_filter(timestamp):
-    return timestamp.strftime('%Y-%m-%d %H:%M')
+    if isinstance(timestamp, datetime):
+        return timestamp.strftime('%Y-%m-%d %H:%M')
+    return ''
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -631,6 +665,19 @@ def update_record(record_id):
         if custom_instructions is not None:
             record.custom_instructions = custom_instructions
 
+        # Update Geburtsdatum
+        birth_date_str = request.form.get('birthDate')
+        if birth_date_str:
+            try:
+                record.birth_date = datetime.strptime(birth_date_str, '%Y-%m-%d')
+            except ValueError:
+                return jsonify({'success': False, 'error': 'Ungültiges Datumsformat'}), 400
+        else:
+            record.birth_date = None
+
+        # Speichere die Änderungen an den Metadaten
+        db.session.commit()
+
         # Handle file upload if files are included
         if 'files[]' in request.files:
             files = request.files.getlist('files[]')
@@ -644,24 +691,123 @@ def update_record(record_id):
                     filenames.append(filename)
 
             if filenames:
-                # Starte den process_pdfs Task nur für neue Dateien
+                # Starte den process_pdfs Task für neue Dateien
+                # und übergebe dabei auch die aktualisierten Metadaten
                 result = process_pdfs.delay(
                     filenames,
                     record.patient_name,
                     record.id,
                     record.create_reports,
                     record.user_id,
-                    record.custom_instructions
+                    record.custom_instructions,  # Übergebe die aktualisierten Custom Instructions
+                    record.birth_date  # Übergebe das aktualisierte Geburtsdatum
                 )
                 return jsonify({'success': True, 'task_id': result.id})
 
-        # Wenn keine Dateien hochgeladen wurden, speichere nur die Custom Instructions
-        db.session.commit()
+        # Wenn keine Dateien hochgeladen wurden, gib Erfolg zurück
         return jsonify({'success': True})
 
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/remove_file_from_record/<int:record_id>/<path:filename>', methods=['DELETE'])
+@login_required
+def remove_file_from_record(record_id, filename):
+    record = HealthRecord.query.get_or_404(record_id)
+    if record.user_id != current_user.id:
+        abort(403)
+
+    try:
+        logger.info(f"=== Starting file removal process ===")
+        logger.info(f"Removing file {filename} from record {record_id}")
+        logger.info(f"Initial text length: {len(record.text) if record.text else 0}")
+        logger.info(f"Initial token count: {record.token_count}")
+
+        # Get current filenames
+        current_filenames = record.filenames.split(',') if record.filenames else []
+        logger.info(f"Current filenames: {current_filenames}")
+        
+        if filename not in current_filenames:
+            logger.warning(f"File {filename} not found in record")
+            return jsonify({'success': False, 'error': 'Datei nicht gefunden'}), 404
+
+        # Remove filename from list
+        current_filenames.remove(filename)
+        record.filenames = ','.join(current_filenames) if current_filenames else None
+        logger.info(f"Updated filenames: {record.filenames}")
+
+        # Remove the extracted text for this file
+        if record.text:
+            # Define patterns for different extraction types
+            patterns = [
+                f'<extraction method="pdf_text"><document title="{filename}">(.*?)</document>',
+                f'<extraction method="ocr"><document title="{filename}">(.*?)</document>',
+                f'<extraction method="azure_vision"><document title="{filename}">(.*?)</document>',
+                f'<extraction method="gpt4_vision"><document title="{filename}">(.*?)</document>'
+            ]
+            
+            # Remove each pattern from the text
+            text = record.text
+            logger.info(f"Original text snippet: {text[:500]}...")  # First 500 chars
+            
+            for pattern in patterns:
+                logger.info(f"Applying pattern: {pattern}")
+                new_text = re.sub(pattern, '', text, flags=re.DOTALL)
+                if new_text != text:
+                    logger.info(f"Pattern matched and removed content")
+                    logger.info(f"Text length before: {len(text)}, after: {len(new_text)}")
+                text = new_text
+            
+            # Clean up any double newlines that might have been created
+            text = re.sub(r'\n{3,}', '\n\n', text.strip())
+            logger.info(f"Final text snippet: {text[:500]}...")  # First 500 chars
+            
+            record.text = text if text.strip() else None
+
+            # Update token count using the utility function
+            if record.text:
+                old_token_count = record.token_count
+                record.token_count = count_tokens(record.text)
+                logger.info(f"Token count updated from {old_token_count} to {record.token_count}")
+            else:
+                record.token_count = 0
+                logger.info("Text was empty after removal, token count set to 0")
+
+            # Re-analyze remaining text for medical codes
+            if record.text:
+                extraction_result = extract_medical_codes.apply_async((record.text,)).get()
+                if not isinstance(extraction_result, dict) or 'exc_type' not in extraction_result:
+                    parsed_result = parse_medical_codes_xml(extraction_result)
+                    if parsed_result:
+                        save_result = save_medical_codes.apply_async((parsed_result, record_id)).get()
+                        logger.info(f"Updated medical codes after file removal: {save_result}")
+                        
+                        # Hier die Beschreibungen aktualisieren
+                        if save_result.get('status') == 'success':
+                            update_result = update_medical_codes_descriptions.apply_async((record_id,)).get()
+                            logger.info(f"Updated medical code descriptions after file removal: {update_result}")
+
+        # If this was the last file or no text remains, delete the entire record
+        if not current_filenames or not record.text:
+            logger.info("Deleting entire record as no files or text remain")
+            db.session.delete(record)
+            db.session.commit()
+            return jsonify({'success': True, 'deleted_record': True})
+
+        logger.info(f"=== File removal process completed ===")
+        logger.info(f"Final text length: {len(record.text) if record.text else 0}")
+        logger.info(f"Final token count: {record.token_count}")
+        
+        # Commit the changes to the record
+        db.session.commit()
+
+        return jsonify({'success': True, 'deleted_record': False})
+
+    except Exception as e:
+        logger.exception("Error in remove_file_from_record")
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 if __name__ == '__main__':
     with app.app_context():

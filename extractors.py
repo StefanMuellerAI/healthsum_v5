@@ -14,6 +14,8 @@ from openai import OpenAI
 import google.generativeai as genai
 import os
 import xml.etree.ElementTree as ET
+import re
+from flask_sqlalchemy import SQLAlchemy
 
 
 load_dotenv()
@@ -28,6 +30,8 @@ openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 openai_model = os.environ["OPENAI_MODEL"]
 genai.configure(api_key=os.environ["GEMINI_API_KEY"])
 gemini_model = genai.GenerativeModel("gemini-1.5-pro")
+
+db = SQLAlchemy()
 
 
 class Extractor(ABC):
@@ -143,3 +147,62 @@ class GPT4VisionExtractor(Extractor):
                 base64_image = base64.b64encode(buffer.read()).decode('utf-8')
 
         return base64_image
+
+
+class CodeExtractor(Extractor):
+    def __init__(self):
+        self.pattern = r"\b([A-Z]\d{1,2}(\.\d+)?|[A-Z]{2}\d{2}(\.\d+)?|\d-\d{3}(\.\d+)?|\d-\d{3}[a-z]?)\b"
+    
+    def extract(self, text):
+        if not isinstance(text, str):
+            raise ValueError("Input must be a string")
+            
+        # Codes extrahieren
+        codes = re.findall(self.pattern, text)
+        
+        # Nur die Hauptgruppe der Matches extrahieren
+        extracted_codes = [match[0] for match in codes]
+        
+        # Entferne Duplikate durch Umwandlung in ein Set und zurück in eine Liste
+        extracted_codes = list(set(extracted_codes))
+        
+        # Gruppiere die Codes nach ihrem Typ
+        icd10_codes = []
+        icd11_codes = []
+        ops_codes = []
+        
+        for code in extracted_codes:
+            if re.match(r"[A-Z]\d{2}", code):  # ICD-10 Format
+                icd10_codes.append(code)
+            elif re.match(r"[A-Z]{2}\d{2}", code):  # ICD-11 Format
+                icd11_codes.append(code)
+            elif re.match(r"\d-\d{3}", code):  # OPS Format
+                ops_codes.append(code)
+        
+        # Entferne Duplikate in den einzelnen Code-Listen (für zusätzliche Sicherheit)
+        icd10_codes = list(set(icd10_codes))
+        icd11_codes = list(set(icd11_codes))
+        ops_codes = list(set(ops_codes))
+        
+        # Erstelle strukturierte XML-Ausgabe
+        root = ET.Element("extraction", method="code_extraction")
+        
+        if icd10_codes:
+            icd10_elem = ET.SubElement(root, "icd10_codes")
+            for code in icd10_codes:
+                code_elem = ET.SubElement(icd10_elem, "code")
+                code_elem.text = code
+                
+        if icd11_codes:
+            icd11_elem = ET.SubElement(root, "icd11_codes")
+            for code in icd11_codes:
+                code_elem = ET.SubElement(icd11_elem, "code")
+                code_elem.text = code
+                
+        if ops_codes:
+            ops_elem = ET.SubElement(root, "ops_codes")
+            for code in ops_codes:
+                code_elem = ET.SubElement(ops_elem, "code")
+                code_elem.text = code
+        
+        return ET.tostring(root, encoding="unicode")

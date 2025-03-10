@@ -6,7 +6,10 @@
             <h2 class="text-3xl font-bold mb-6">Gespeicherte Datensätze</h2>
             <h3 class="text-xl mb-6">Hier finden Sie alle Ihre gespeicherten Datensätze.</h3>
             <div class="mb-6">
-                <input type="text" id="searchInput" placeholder="Suche nach Patientenname" class="w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <input type="text" 
+                       id="searchInput" 
+                       placeholder="Suche (z.B. 'Larry and 1982' oder 'Müller')" 
+                       class="w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
             </div>
             <div class="max-h-screen overflow-y-auto">
             <ul id="datasetList" class="space-y-6">
@@ -20,11 +23,14 @@
                                 </span>
                             </div>
                             <div class="flex-grow">
-                                <h3 class="text-xl font-medium text-gray-900">
+                                <h3 class="text-xl font-medium text-gray-900 patient-name">
                                     {{ record.patient_name or 'Unbekannter Patient' }}
-                                </h3>
-                                <p class="text-sm text-gray-500">
+                                </h3>                             
+                                <p class="text-sm text-gray-500 patient-id">
                                     ID: {{ record.id }}
+                                </p>
+                                <p class="text-sm text-gray-500 birth-date">
+                                    Geburtsdatum: {{ record.birth_date|format_date if record.birth_date else 'Nicht angegeben' }}
                                 </p>
                                 <p class="text-sm text-gray-500">
                                     {{ record.timestamp|format_timestamp }}
@@ -72,6 +78,13 @@
                         <div>
                             <label for="lastName" class="block text-lg font-medium text-gray-700">Nachname</label>
                             <input type="text" id="lastName" name="lastName" required class="mt-1 block w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+                        <div>
+                            <label for="birthDate" class="block text-lg font-medium text-gray-700">Geburtsdatum (optional)</label>
+                            <input type="date" 
+                                   id="birthDate" 
+                                   name="birthDate" 
+                                   class="mt-1 block w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                         </div>
                         <div class="flex items-center">
                             <input id="createReports" name="createReports" type="checkbox" class="h-5 w-5 text-blue-600 focus:ring-blue-500 border-gray-300 rounded">
@@ -131,8 +144,8 @@
                             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                         </svg>
-                        <h3 class="mt-4 text-lg font-semibold text-gray-900">Verarbeitung gestartet</h3>
-                        <p class="mt-2 text-gray-600">Die Dateien wurden erfolgreich hochgeladen und werden nun verarbeitet. Sie können dieses Fenster schließen - die Verarbeitung läuft im Hintergrund weiter.</p>
+                        <h3 class="mt-4 text-lg font-semibold text-gray-900">Verarbeitung läuft</h3>
+                        <p class="mt-2 text-gray-600">Bitte warten Sie, während die Daten verarbeitet werden. Sie können dieses Fenster schließen - die Verarbeitung läuft im Hintergrund weiter.</p>
                     </div>
                 </div>
             </div>
@@ -185,6 +198,17 @@
                                     </div>
                                 </div>
                                 <div id="modalFileList" class="mt-2 text-sm text-gray-500"></div>
+                            </div>
+
+                            <!-- Geburtsdatum -->
+                            <div class="mb-4">
+                                <label for="modalBirthDate" class="block text-sm font-medium text-gray-700 mb-2">
+                                    Geburtsdatum
+                                </label>
+                                <input type="date" 
+                                       id="modalBirthDate" 
+                                       name="birthDate" 
+                                       class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
                             </div>
                         </form>
                     </div>
@@ -253,6 +277,9 @@ document.addEventListener('DOMContentLoaded', function() {
         transports: ['websocket']
     });
 
+    // Aktive Tasks verfolgen
+    window.activeTasks = new Set();
+
     mainFileInput.addEventListener('change', function() {
         updateFileList(this, mainFileList);
     });
@@ -281,6 +308,9 @@ document.addEventListener('DOMContentLoaded', function() {
             uploadSpinner.classList.remove('hidden');
         }
 
+        // Zeige den Spinner sofort an
+        showGlobalSpinner();
+
         fetch('/upload', {
             method: 'POST',
             body: formData
@@ -288,17 +318,20 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(response => response.json())
         .then(data => {
             if (data.task_id) {
+                // Füge die Task-ID zur Liste der aktiven Tasks hinzu
+                window.activeTasks.add(data.task_id);
                 socket.emit('join_task_room', {task_id: data.task_id});
+                // Spinner bleibt sichtbar
             } else {
-                console.error('Fehler beim Hochladen:', data.error);
                 alert('Fehler beim Hochladen: ' + data.error);
                 resetUploadUI();
+                hideGlobalSpinner();
             }
         })
         .catch(error => {
-            console.error('Fehler:', error);
             alert('Fehler: ' + error);
             resetUploadUI();
+            hideGlobalSpinner();
         });
     }
 
@@ -309,21 +342,13 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function showProcessingOverlay() {
-        const overlay = document.getElementById('processing-overlay');
-        overlay.classList.remove('hidden');
-        document.getElementById('uploadForm').style.opacity = '0.5';
-        document.getElementById('uploadForm').style.pointerEvents = 'none';
+        showGlobalSpinner();
     }
 
     function resetUploadUI() {
         const uploadButton = document.querySelector('button[type="submit"]');
         const uploadSpinner = document.getElementById('uploadSpinner');
-        const overlay = document.getElementById('processing-overlay');
-        const form = document.getElementById('uploadForm');
         
-        overlay.classList.add('hidden');
-        form.style.opacity = '1';
-        form.style.pointerEvents = 'auto';
         uploadButton.disabled = false;
         if (uploadSpinner) {
             uploadSpinner.classList.add('hidden');
@@ -345,41 +370,272 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function filterDatasets() {
-        const searchTerm = searchInput.value.toLowerCase();
+        const searchInput = document.getElementById('searchInput');
+        const searchText = searchInput.value.toLowerCase();
         const datasets = document.getElementById('datasetList').getElementsByTagName('li');
 
-        for (let dataset of datasets) {
-            const patientName = dataset.querySelector('h3').textContent.toLowerCase();
-            const patientId = dataset.querySelector('p').textContent.toLowerCase();
-            dataset.style.display = patientName.includes(searchTerm) || patientId.includes(searchTerm) ? '' : 'none';
+        // Wenn die Suche leer ist, zeige alle Datensätze
+        if (!searchText) {
+            Array.from(datasets).forEach(dataset => dataset.style.display = '');
+            return;
         }
-    }
 
-    function refreshDatasetList() {
-        fetch('/get_datasets')
-        .then(response => response.json())
-        .then(updateDatasetList)
-        .catch(error => console.error('Error refreshing dataset list:', error));
+        // Teile den Suchtext in Terme auf, wenn "AND" vorhanden ist
+        const searchTerms = searchText.includes('and') ? 
+            searchText.split('and').map(term => term.trim()) : 
+            [searchText];
+
+        for (let dataset of datasets) {
+            const patientName = dataset.querySelector('.patient-name').textContent.toLowerCase();
+            const patientId = dataset.querySelector('.patient-id').textContent.toLowerCase();
+            const birthDate = dataset.querySelector('.birth-date').textContent.toLowerCase();
+            
+            // Kombiniere alle durchsuchbaren Inhalte
+            const searchableContent = `${patientName} ${patientId} ${birthDate}`;
+            
+            // Prüfe, ob ALLE Suchbegriffe im Inhalt vorkommen
+            const allTermsFound = searchTerms.every(term => 
+                searchableContent.includes(term)
+            );
+            
+            dataset.style.display = allTermsFound ? '' : 'none';
+        }
     }
 
     socket.on('task_status', function(data) {
-        if (data.status === 'process_pdfs_started') {
-            showProcessingOverlay();
-        } 
-        else if (data.status === 'error') {
-            console.error('Fehler:', data.message);
-            alert('Fehler: ' + data.message);
-            resetUploadUI();
+        
+        // Task-ID aus den Daten extrahieren
+        const taskId = data.task_id || '';
+        
+        // Wenn ein Task gestartet wird, füge ihn zur Liste hinzu
+        if (data.status.includes('_started') || data.status === 'processing') {
+            if (taskId) window.activeTasks.add(taskId);
+            showGlobalSpinner();
         }
-        else if (data.status === 'create_report_completed') {
-            resetFormAfterProcessing();
-        }
-        else if (data.status === 'process_record_completed' && !document.getElementById('createReports').checked) {
-            resetFormAfterProcessing();
+        // Wenn ein Task beendet wird, entferne ihn aus der Liste
+        else if (data.status.includes('_completed') || 
+                  data.status === 'error' || 
+                  data.status === 'finished' || 
+                  data.status === 'done') {
+            
+            if (taskId) window.activeTasks.delete(taskId);
+            
+            
+            // SPEZIALFALL: Bei create_report_completed immer aufräumen
+            if (data.status === 'create_report_completed') {
+                window.activeTasks.clear();
+                hideGlobalSpinner();
+                refreshDatasetList();
+                return;
+            }
+            
+            // Wenn keine aktiven Tasks mehr vorhanden sind, verstecke den Spinner
+            if (window.activeTasks.size === 0) {
+                hideGlobalSpinner();
+                
+                if (data.status === 'error') {
+                    alert('Fehler: ' + data.message);
+                    window.location.reload();
+                }
+                else {
+                    // Aktualisiere die Ansicht nach erfolgreicher Verarbeitung
+                    refreshDatasetList();
+                    resetFormAfterProcessing();
+                }
+            } else {
+            }
         }
     });
 
+    // Sicherheits-Timeout: Falls der Spinner nach 5 Minuten noch angezeigt wird, verstecke ihn
+    setInterval(() => {
+        const overlay = document.getElementById('processing-overlay');
+        if (!overlay.classList.contains('hidden')) {
+            const spinnerStartTime = window.spinnerStartTime || 0;
+            const currentTime = new Date().getTime();
+            
+            // Wenn der Spinner länger als 5 Minuten angezeigt wird, verstecke ihn
+            if (currentTime - spinnerStartTime > 5 * 60 * 1000) {
+                window.activeTasks.clear();
+                hideGlobalSpinner();
+                refreshDatasetList();
+            }
+        }
+    }, 30000); // Prüfe alle 30 Sekunden
 });
+
+// Globale Funktionen
+function refreshDatasetList() {
+    fetch('/get_datasets')
+    .then(response => response.json())
+    .then(data => {
+        updateDatasetList(data);
+    })
+    .catch(error => console.error('Fehler beim Aktualisieren der Datensatzliste.'));
+}
+
+function updateDatasetList(data) {
+    const datasetList = document.getElementById('datasetList');
+    datasetList.innerHTML = '';
+    data.forEach(record => {
+
+        
+        const li = document.createElement('li');
+        li.className = 'bg-white shadow-lg overflow-hidden rounded-lg';
+        li.dataset.id = record.id;
+
+        const formattedTimestamp = new Date(record.timestamp).toLocaleString('de-DE', {
+            year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
+        });
+
+        // Hole das existierende Geburtsdatum aus dem DOM, falls vorhanden
+        const existingRecord = document.querySelector(`li[data-id="${record.id}"]`);
+        const existingBirthDate = existingRecord ? 
+            existingRecord.querySelector('.birth-date').textContent.replace('Geburtsdatum: ', '') : 
+            null;
+
+        let birthdateTimestamp;
+        if (record.birth_date) {
+            try {
+                birthdateTimestamp = new Date(record.birth_date).toLocaleString('de-DE', {
+                    year: 'numeric', month: '2-digit', day: '2-digit'
+                });
+            } catch (error) {
+                birthdateTimestamp = existingBirthDate || 'Nicht angegeben';
+            }
+        } else {
+            birthdateTimestamp = existingBirthDate || 'Nicht angegeben';
+        }
+
+        li.innerHTML = `
+            <div class="flex items-center justify-between px-6 py-5">
+                <div class="flex items-center flex-grow">
+                    <div class="flex-shrink-0 h-14 w-14 rounded-full bg-blue-100 flex items-center justify-center mr-4">
+                        <span class="text-2xl font-bold text-blue-600">${record.patient_name ? record.patient_name[0].toUpperCase() : '?'}</span>
+                    </div>
+                    <div class="flex-grow">
+                        <h3 class="text-xl font-medium text-gray-900 patient-name">${record.patient_name || 'Unbekannter Patient'}</h3>
+                        <p class="text-sm text-gray-500 patient-id">ID: ${record.id}</p>
+                        <p class="text-sm text-gray-500 birth-date">Geburtsdatum: ${birthdateTimestamp}</p>
+                        <p class="text-sm text-gray-500">${formattedTimestamp}</p>
+                        <p class="text-sm text-gray-500">Berichte: ${record.create_reports ? 'Ja' : 'Nein'}</p>
+                    </div>
+                </div>
+                <div class="flex space-x-3">
+                    <button onclick="addDocuments('${record.id}')" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg transition duration-300" aria-label="Dokumente hinzufügen">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                        </svg>
+                    </button>
+                    <button onclick="openModal('${record.id}')" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg transition duration-300" aria-label="Details anzeigen">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                    </button>
+                    <button onclick="deleteRecord('${record.id}')" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg transition duration-300" aria-label="Datensatz löschen">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        `;
+        
+        datasetList.appendChild(li);
+    });
+}
+
+function toggleCustomInstructions() {
+    const container = document.getElementById('customInstructionsContainer');
+    const arrow = document.getElementById('customInstructionsArrow');
+    
+    container.classList.toggle('hidden');
+    arrow.classList.toggle('rotate-180');
+}
+
+function showGlobalSpinner() {
+    // Schließe zuerst alle modalen Dialoge
+    closeModal();          // Schließt das Info-Modal
+    closeUploadModal();    // Schließt das Upload-Modal
+    
+    const overlay = document.getElementById('processing-overlay');
+    overlay.classList.remove('hidden');
+    
+    // Stelle sicher, dass der Spinner über allem anderen liegt
+    overlay.style.zIndex = '9999';
+    
+    // Deaktiviere Interaktionen mit dem Rest der Seite
+    document.body.style.pointerEvents = 'none';
+    document.getElementById('processing-overlay').style.pointerEvents = 'auto';
+    
+    // Speichere die Startzeit des Spinners
+    window.spinnerStartTime = new Date().getTime();
+}
+
+function hideGlobalSpinner() {
+    const overlay = document.getElementById('processing-overlay');
+    overlay.classList.add('hidden');
+    
+    // Aktiviere Interaktionen mit der Seite wieder
+    document.body.style.pointerEvents = 'auto';
+}
+
+function saveChanges() {
+    const form = document.getElementById('modalUploadForm');
+    const formData = new FormData(form);
+    const recordId = form.querySelector('input[name="record_id"]').value;
+
+    // Stelle sicher, dass alle Formularfelder in FormData enthalten sind
+    const birthDate = document.getElementById('modalBirthDate').value;
+    const customInstructions = document.getElementById('modalCustomInstructions').value;
+    const hasFiles = document.getElementById('modalFileInput').files.length > 0;
+
+    // Füge die Werte explizit hinzu
+    if (birthDate) {
+        formData.append('birthDate', birthDate);
+    }
+    if (customInstructions) {
+        formData.append('customInstructions', customInstructions);
+    }
+
+    // Zeige den Spinner sofort an, unabhängig davon, ob Dateien hochgeladen werden
+    showGlobalSpinner();
+    
+    fetch(`/update_record/${recordId}`, {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.task_id) {
+            // Wenn ein Task gestartet wurde (für PDF-Verarbeitung), verbinde mit Socket
+            const socket = io('/tasks', { transports: ['websocket'] });
+            
+            // Füge die Task-ID zur Liste der aktiven Tasks hinzu
+            window.activeTasks.add(data.task_id);
+            
+            socket.emit('join_task_room', {task_id: data.task_id});
+            
+            // Wichtig: Spinner bleibt sichtbar, wird nicht versteckt
+        } else {
+            // Nur wenn keine Dateien hochgeladen wurden und kein Task gestartet wurde
+            if (!hasFiles) {
+                hideGlobalSpinner();
+                if (data.success) {
+                    closeUploadModal();
+                    refreshDatasetList();
+                } else {
+                    alert('Fehler beim Speichern: ' + data.error);
+                }
+            }
+        }
+    })
+    .catch(error => {
+        // Nur bei einem echten Fehler den Spinner ausblenden
+        hideGlobalSpinner();
+        alert('Fehler beim Speichern');
+    });
+}
 
 function openModal(recordId) {
     fetch(`/get_record/${recordId}`)
@@ -389,8 +645,14 @@ function openModal(recordId) {
             year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
         });
 
+        const birthdateTimestamp = data.birth_date && data.birth_date !== "Nicht angegeben" ? 
+            new Date(data.birth_date.split('T')[0]).toLocaleString('de-DE', {
+                year: 'numeric', month: '2-digit', day: '2-digit'
+            }) : 'Nicht angegeben';
+
         document.getElementById('modalContent').innerHTML = `
             <p><strong>Datensatz:</strong> ${data.patient_name || 'Unbekannt'}</p>
+            <p><strong>Geburtsdatum:</strong> ${birthdateTimestamp}</p>
             <p><strong>Letzte Aktualisierung:</strong> ${formattedTimestamp}</p>
             <p><strong>Zeitraum:</strong> ${data.medical_history_begin && data.medical_history_end ? `${data.medical_history_begin} - ${data.medical_history_end}` : 'Nicht angegeben'}</p>
             <p><strong>Berichte:</strong> ${data.create_reports ? 'Ja' : 'Nein'}</p>
@@ -402,14 +664,25 @@ function openModal(recordId) {
             </div>
             <div class="mt-4">
                 <p><strong>Dateien:</strong></p>
-                <ul class="mt-2 list-disc list-inside">
-                    ${data.filenames ? data.filenames.split(',').map(filename => `<li class="text-sm">${filename.trim()}</li>`).join('') : 'Keine Dateien'}
+                <ul class="mt-2 space-y-2">
+                    ${data.filenames ? data.filenames.split(',').map(filename => `
+                        <li class="flex items-center justify-between bg-gray-50 p-2 rounded">
+                            <span class="text-sm">${filename.trim()}</span>
+                            <button onclick="removeFile('${data.id}', '${filename.trim()}')" 
+                                    class="text-red-600 hover:text-red-800 focus:outline-none"
+                                    title="Datei und extrahierten Text löschen">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                            </button>
+                        </li>
+                    `).join('') : '<li class="text-sm text-gray-500">Keine Dateien</li>'}
                 </ul>
             </div>
         `;
         document.getElementById('recordModal').classList.remove('hidden');
     })
-    .catch(error => console.error('Error fetching record details:', error));
+    .catch(error => console.error('Error fetching record details.'));
 }
 
 function closeModal() {
@@ -420,14 +693,21 @@ function addDocuments(recordId) {
     const modal = document.getElementById('uploadModal');
     const uploadForm = document.getElementById('modalUploadForm');
     const customInstructionsField = document.getElementById('modalCustomInstructions');
+    const birthDateField = document.getElementById('modalBirthDate');
 
-    // Hole aktuelle Custom Instructions für den Datensatz
+    // Hole aktuelle Daten für den Datensatz
     fetch(`/get_record/${recordId}`)
         .then(response => response.json())
         .then(data => {
             customInstructionsField.value = data.custom_instructions || '';
+            // Setze das Geburtsdatum wenn vorhanden
+            if (data.birth_date) {
+                birthDateField.value = data.birth_date.split('T')[0]; // Nimm nur das Datum ohne Zeitangabe
+            } else {
+                birthDateField.value = '';
+            }
         })
-        .catch(error => console.error('Error fetching record details:', error));
+        .catch(error => console.error('Error fetching record details.'));
 
     let recordIdInput = uploadForm.querySelector('input[name="record_id"]');
     if (!recordIdInput) {
@@ -461,102 +741,39 @@ function deleteRecord(recordId) {
             if (data.message) {
                 refreshDatasetList();
             } else {
-                console.error('Error deleting record:', data.error);
+                console.error('Error deleting record.');
             }
         })
         .catch(console.error);
     }
 }
 
-function refreshDatasetList() {
-    fetch('/get_datasets')
-    .then(response => response.json())
-    .then(data => {
-        updateDatasetList(data);
-    })
-    .catch(error => console.error('Fehler beim Aktualisieren der Datensatzliste:', error));
-}
-
-function updateDatasetList(data) {
-    const datasetList = document.getElementById('datasetList');
-    datasetList.innerHTML = '';
-    data.forEach(record => {
-        const li = document.createElement('li');
-        li.className = 'bg-white shadow overflow-hidden rounded-lg';
-        li.dataset.id = record.id;
-
-        const formattedTimestamp = new Date(record.timestamp).toLocaleString('de-DE', {
-            year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
+function removeFile(recordId, filename) {
+    if (confirm(`Sind Sie sicher, dass Sie die Datei "${filename}" und deren extrahierten Text aus diesem Datensatz entfernen möchten? Diese Aktion kann nicht rückgängig gemacht werden.`)) {
+        showGlobalSpinner(); // Dies wird jetzt auch das Modal schließen
+        fetch(`/remove_file_from_record/${recordId}/${encodeURIComponent(filename)}`, {
+            method: 'DELETE'
+        })
+        .then(response => response.json())
+        .then(data => {
+            hideGlobalSpinner();
+            if (data.success) {
+                if (data.deleted_record) {
+                    refreshDatasetList();
+                } else {
+                    // Warte kurz, bis der Spinner weg ist, bevor das neue Modal geöffnet wird
+                    setTimeout(() => openModal(recordId), 100);
+                }
+            } else {
+                alert('Fehler beim Löschen der Datei: ' + data.error);
+            }
+        })
+        .catch(error => {
+            hideGlobalSpinner();
+            console.error('Error!');
+            alert('Fehler beim Löschen der Datei');
         });
-
-
-        li.innerHTML = `
-            <div class="px-4 py-5 flex items-center justify-between">
-                <div class="flex items-center">
-                    <div class="flex-shrink-0 h-10 w-10 rounded-full bg-gray-300 flex items-center justify-center mr-4">
-                        <span class="text-xl font-bold text-gray-600">${record.patient_name ? record.patient_name[0].toUpperCase() : '?'}</span>
-                    </div>
-                    <div>
-                        <h3 class="text-lg font-medium text-gray-900">${record.patient_name || 'Unbekannter Patient'}</h3>
-                        <p class="text-sm text-gray-500">ID: ${record.id}</p>
-                        <p class="text-sm text-gray-500">${formattedTimestamp}</p>
-                        <p class="text-sm text-gray-500">${record.create_reports ? 'Berichte: Ja' : 'Berichte: Nein'}</p>
-                    </div>
-                </div>
-                <div class="flex space-x-2">
-                    <button onclick="addDocuments('${record.id}')" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded" aria-label="Dokumente hinzufügen">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                        </svg>
-                    </button>
-                    <button onclick="openModal('${record.id}')" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded" aria-label="Details anzeigen">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                    </button>
-                    <button onclick="deleteRecord('${record.id}')" class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded" aria-label="Datensatz löschen">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                    </button>
-                </div>
-            </div>
-        `;
-        
-        datasetList.appendChild(li);
-    });
-}
-
-function toggleCustomInstructions() {
-    const container = document.getElementById('customInstructionsContainer');
-    const arrow = document.getElementById('customInstructionsArrow');
-    
-    container.classList.toggle('hidden');
-    arrow.classList.toggle('rotate-180');
-}
-
-function saveChanges() {
-    const form = document.getElementById('modalUploadForm');
-    const formData = new FormData(form);
-    const recordId = form.querySelector('input[name="record_id"]').value;
-
-    fetch(`/update_record/${recordId}`, {
-        method: 'POST',
-        body: formData
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.success) {
-            closeUploadModal();
-            refreshDatasetList();
-        } else {
-            alert('Fehler beim Speichern: ' + data.error);
-        }
-    })
-    .catch(error => {
-        console.error('Error:', error);
-        alert('Fehler beim Speichern');
-    });
+    }
 }
 
 </script>

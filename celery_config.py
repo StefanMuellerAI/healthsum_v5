@@ -31,7 +31,9 @@ CELERY_QUEUES = {
     'refinement': {},
     'summary': {},
     'regenerate_report': {},
-    'notification': {}
+    'notification': {},
+    'medical_codes': {},
+    'icd_descriptions': {}  # Neue Queue für ICD-Beschreibungen
 }
 
 # Routing-Einstellungen
@@ -46,7 +48,10 @@ CELERY_ROUTES = {
     'tasks.create_report': {'queue': 'summary'},
     'tasks.regenerate_report_task': {'queue': 'regenerate_report'},
     'tasks.generate_single_report': {'queue': 'regenerate_report'},
-    'tasks.send_notifications_task': {'queue': 'notification'}
+    'tasks.extract_medical_codes': {'queue': 'medical_codes'},
+    'tasks.save_medical_codes': {'queue': 'medical_codes'},
+    'tasks.send_notifications_task': {'queue': 'notification'},
+    'tasks.update_medical_codes_descriptions': {'queue': 'icd_descriptions'},  # Neue Route
 }
 
 # Beat-Schedule-Einstellungen

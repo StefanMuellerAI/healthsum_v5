@@ -3,7 +3,9 @@
 {% block content %}
 <div class="flex flex-col items-center justify-center">
     <h2 class="text-2xl font-bold mb-6">KPIs - Tokens pro Sekunde</h2>
-    <div class="flex flex-col md:flex-row space-y-10 md:space-y-0 md:space-x-10">
+    <div class="flex flex-col md:flex-row space-y-10 md:space-y-0 md:space-x-10"
+         data-tps-reports="{{ tps_reports|round(2) }}"
+         data-tps-no-reports="{{ tps_no_reports|round(2) }}">
         <!-- Mit Berichterstellung -->
         <div class="flex flex-col items-center">
             <h3 class="text-xl font-semibold mb-4">Mit Berichterstellung</h3>
@@ -20,52 +22,57 @@
 </div>
 
 <script>
-    function createGauge(elementId, value) {
-        new RadialGauge({
-            renderTo: elementId,
-            width: 250,
-            height: 250,
-            units: 'Tokens/Sekunde',
-            minValue: 0,
-            maxValue: 1000,
-            majorTicks: [
-                '0','100','200','300','400','500','600','700','800','900','1000'
-            ],
-            minorTicks: 10,
-            ticksAngle: 270,
-            startAngle: 45,
-            strokeTicks: true,
-            highlights: [
-                { from: 0, to: 500, color: 'rgba(0,255,0,.25)' },
-                { from: 500, to: 800, color: 'rgba(255,255,0,.25)' },
-                { from: 800, to: 1000, color: 'rgba(255,0,0,.25)' }
-            ],
-            colorPlate: '#fff',
-            colorMajorTicks: '#000',
-            colorMinorTicks: '#000',
-            colorNumbers: '#000',
-            colorNeedle: 'rgba(50,50,50,1)',
-            colorNeedleEnd: 'rgba(50,50,50,1)',
-            valueBox: true,
-            valueTextShadow: false,
-            animationRule: 'bounce',
-            animationDuration: 1500,
-            needleType: 'arrow',
-            needleWidth: 3,
-            borders: true,
-            borderInnerWidth: 0,
-            borderMiddleWidth: 0,
-            borderOuterWidth: 10,
-            colorBorderOuter: '#ccc',
-            colorBorderOuterEnd: '#ccc',
-            colorNeedleShadowDown: '#222',
-            needleShadow: true,
-            value: value
-        }).draw();
-    }
+    document.addEventListener('DOMContentLoaded', function() {
+        const container = document.querySelector('[data-tps-reports]');
+        const tpsReports = parseFloat(container.dataset.tpsReports);
+        const tpsNoReports = parseFloat(container.dataset.tpsNoReports);
 
-    // Erstellung der Tachometer mit den berechneten Werten
-    createGauge('gaugeReports', {{ tps_reports|round(2) }});
-    createGauge('gaugeNoReports', {{ tps_no_reports|round(2) }});
+        function createGauge(elementId, value) {
+            new RadialGauge({
+                renderTo: elementId,
+                width: 250,
+                height: 250,
+                units: 'Tokens/Sekunde',
+                minValue: 0,
+                maxValue: 1000,
+                majorTicks: [
+                    '0','100','200','300','400','500','600','700','800','900','1000'
+                ],
+                minorTicks: 10,
+                ticksAngle: 270,
+                startAngle: 45,
+                strokeTicks: true,
+                highlights: [
+                    { from: 0, to: 500, color: 'rgba(0,255,0,.25)' },
+                    { from: 500, to: 800, color: 'rgba(255,255,0,.25)' },
+                    { from: 800, to: 1000, color: 'rgba(255,0,0,.25)' }
+                ],
+                colorPlate: '#fff',
+                colorMajorTicks: '#000',
+                colorMinorTicks: '#000',
+                colorNumbers: '#000',
+                colorNeedle: 'rgba(50,50,50,1)',
+                colorNeedleEnd: 'rgba(50,50,50,1)',
+                valueBox: true,
+                valueTextShadow: false,
+                animationRule: 'bounce',
+                animationDuration: 1500,
+                needleType: 'arrow',
+                needleWidth: 3,
+                borders: true,
+                borderInnerWidth: 0,
+                borderMiddleWidth: 0,
+                borderOuterWidth: 10,
+                colorBorderOuter: '#ccc',
+                colorBorderOuterEnd: '#ccc',
+                colorNeedleShadowDown: '#222',
+                needleShadow: true,
+                value: value
+            }).draw();
+        }
+
+        createGauge('gaugeReports', tpsReports);
+        createGauge('gaugeNoReports', tpsNoReports);
+    });
 </script>
 {% endblock %}

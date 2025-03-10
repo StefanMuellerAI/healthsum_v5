@@ -4,17 +4,19 @@ import logging
 from celery import chain, group, shared_task
 from celery.schedules import crontab
 from celery_config import create_celery_app
-from extractors import PDFTextExtractor, OCRExtractor, AzureVisionExtractor, GPT4VisionExtractor
-from utils import count_tokens, find_patient_info
+from extractors import PDFTextExtractor, OCRExtractor, AzureVisionExtractor, GPT4VisionExtractor, CodeExtractor
+from utils import count_tokens, find_patient_info, update_medical_code_description
 from datetime import datetime
 import traceback
-from models import db, HealthRecord, Report, ReportTemplate, TaskMonitor
+from models import db, HealthRecord, Report, ReportTemplate, TaskMonitor, MedicalCode
 from extractors import openai_client
 from reports import generate_report
 from flask import current_app, render_template
 from extensions import socketio
 from utils import update_task_monitor, create_task_monitor, mark_notification_sent
 from flask_mail import Mail, Message
+import xml.etree.ElementTree as ET
+import time
 
 # Konfigurieren des Loggings
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -22,7 +24,7 @@ logger = logging.getLogger(__name__)
 celery = create_celery_app()
 
 @celery.task(bind=True)
-def process_pdfs(self, filenames, patient_name, record_id=None, create_reports=False, user_id=None, custom_instructions=None):
+def process_pdfs(self, filenames, patient_name, record_id=None, create_reports=False, user_id=None, custom_instructions=None, birth_date=None):
     """
     Verarbeitet PDF-Dateien und extrahiert den Text.
     """
@@ -46,7 +48,8 @@ def process_pdfs(self, filenames, patient_name, record_id=None, create_reports=F
                 patient_name=patient_name,
                 create_reports=create_reports,
                 user_id=user_id,
-                custom_instructions=custom_instructions
+                custom_instructions=custom_instructions,
+                birth_date=birth_date
             )
             db.session.add(record)
             db.session.commit()
@@ -297,10 +300,11 @@ def process_record(self, data, original_task_id=None):
             if start_year and end_year and patient_name:
                 record.medical_history_begin = datetime(start_year, 1, 1)
                 record.medical_history_end = datetime(end_year, 12, 31)
-                db.session.commit()
-                logger.info(f"Updated record {record_id} with medical history years")
-            else:
-                logger.warning(f"No years found in record {record_id}")
+                
+            # Verwende die neue Hilfsfunktion
+            process_codes_for_record(record_id, record.text)
+                
+            db.session.commit()
         else:
             logger.error(f"Record {record_id} not found")
 
@@ -340,6 +344,11 @@ def regenerate_report_task(self, report_id):
         health_record = report.health_record
         template = report.report_template
 
+        medical_codes_list = [
+            {"code": code.code, "description": code.description}
+            for code in health_record.medical_codes
+        ]
+
         # Generieren des Berichts unter Verwendung des aktuellen Templates
         report_content = generate_report(
             template_name=template.template_name,
@@ -352,7 +361,9 @@ def regenerate_report_task(self, report_id):
             health_record_token_count=health_record.token_count,
             health_record_begin=health_record.medical_history_begin,
             health_record_end=health_record.medical_history_end,
-            use_custom_instructions=template.use_custom_instructions
+            use_custom_instructions=template.use_custom_instructions,
+            record_id=health_record.id,
+            medical_codes_text=medical_codes_list
         )
 
         # Aktualisieren des Berichts
@@ -396,6 +407,11 @@ def create_report(self, data, original_task_id=None):
         health_record = HealthRecord.query.get(health_record_id)
         if not health_record:
             return f"HealthRecord mit ID {health_record_id} nicht gefunden."
+        
+        medical_codes_list = [
+            {"code": code.code, "description": code.description}
+            for code in health_record.medical_codes
+        ]
 
         # Holen aller ReportTemplates aus der Datenbank
         report_templates = ReportTemplate.query.all()
@@ -413,7 +429,9 @@ def create_report(self, data, original_task_id=None):
                 health_record_token_count=health_record.token_count,
                 health_record_begin=health_record.medical_history_begin,
                 health_record_end=health_record.medical_history_end,
-                use_custom_instructions=template.use_custom_instructions
+                use_custom_instructions=template.use_custom_instructions,
+                record_id=health_record_id,
+                medical_codes_text=medical_codes_list
             )
 
             # Erstelle einen neuen Report
@@ -460,6 +478,11 @@ def generate_single_report(self, record_id, template_id):
        if not record or not template:
            logger.error("Datensatz oder Template nicht gefunden.")
            return
+       
+       medical_codes_list = [
+            {"code": code.code, "description": code.description}
+            for code in record.medical_codes
+        ]
 
        # Generieren des Berichts
        report_content = generate_report(
@@ -473,7 +496,9 @@ def generate_single_report(self, record_id, template_id):
            health_record_begin=record.medical_history_begin,
            health_record_end=record.medical_history_end,
            health_record_custom_instructions=record.custom_instructions,
-           use_custom_instructions=template.use_custom_instructions
+           use_custom_instructions=template.use_custom_instructions,
+           record_id=record_id,
+           medical_codes_text=medical_codes_list    
        )    
 
        if report_content:
@@ -487,6 +512,7 @@ def generate_single_report(self, record_id, template_id):
            db.session.add(new_report)
            db.session.commit()
            logger.info(f"Bericht für Datensatz-ID {record_id} und Template-ID {template_id} erfolgreich generiert.")
+           return f"Report wurde erfolgreich neu generiert."
        else:
            logger.error("Fehler beim Generieren des Berichts.")
 
@@ -543,3 +569,200 @@ def send_notifications_task(self):
             # Aktualisieren des notification_sent Feldes
             task.notification_sent = True
             db.session.commit()
+
+@celery.task(bind=True)
+def extract_medical_codes(self, text):
+    """
+    Extrahiert medizinische Codes (ICD-10, ICD-11, OPS) aus einem Text.
+    """
+    logger.info("Starting medical code extraction")
+    try:
+        extractor = CodeExtractor()
+        result = extractor.extract(text)
+        logger.info("Medical code extraction completed")
+        return result
+    except Exception as exc:
+        logger.exception("Error in medical code extraction")
+        return {
+            'exc_type': type(exc).__name__,
+            'exc_message': str(exc),
+            'traceback': traceback.format_exc()
+        }
+
+
+@celery.task(bind=True)
+def save_medical_codes(self, extraction_result, record_id):
+    """
+    Speichert extrahierte medizinische Codes für einen Health Record.
+    Bestehende Codes werden gelöscht und durch die neuen ersetzt.
+    
+    :param extraction_result: Liste von extrahierten Codes mit ihren Typen
+    :param record_id: ID des Health Records
+    :return: Status-Dictionary
+    """
+    if not extraction_result or not record_id:
+        logger.warning(f"Keine Daten oder Record-ID für record_id: {record_id}")
+        return {"status": "error", "message": "Keine Daten oder Record-ID"}
+    
+    try:
+        # Lösche alle bestehenden Codes für diesen Record
+        deleted_count = MedicalCode.query.filter_by(health_record_id=record_id).delete()
+        logger.info(f"Gelöschte Codes für Record {record_id}: {deleted_count}")
+        
+        # Füge die neuen Codes hinzu
+        codes_added = 0
+        for item in extraction_result:
+            try:
+                new_code = MedicalCode(
+                    health_record_id=record_id,
+                    code=item['code'],
+                    code_type=item['type'],
+                    description=None  # Wird später durch API-Abfrage gefüllt
+                )
+                db.session.add(new_code)
+                codes_added += 1
+                logger.info(f"Code {item['code']} ({item['type']}) für Record {record_id} hinzugefügt")
+            except Exception as e:
+                logger.exception(f"Fehler beim Hinzufügen des Codes {item['code']}: {str(e)}")
+        
+        db.session.commit()
+        logger.info(f"Erfolgreich {codes_added} neue Codes für Record {record_id} gespeichert")
+        
+        return {
+            "status": "success", 
+            "deleted": deleted_count,
+            "added": codes_added
+        }
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.exception(f"Fehler beim Speichern der medizinischen Codes für Record {record_id}: {str(e)}")
+        return {"status": "error", "message": str(e)}
+
+def process_codes_for_record(record_id, record_text):
+    """
+    Hilfsfunktion zur Extraktion und Speicherung von Codes für einen HealthRecord
+    """
+    logger.info(f"Processing codes for record {record_id}")
+    try:
+        # Code-Extraktion durchführen und auf Ergebnis warten
+        extraction_result = extract_medical_codes.apply_async((record_text,)).get()
+        logger.info(f"Got extraction result for record {record_id}")
+        
+        # Ergebnis speichern
+        if not isinstance(extraction_result, dict) or 'exc_type' not in extraction_result:
+            # Parse XML extraction result into list of dictionaries
+            parsed_result = parse_medical_codes_xml(extraction_result)
+            if parsed_result:
+                save_result = save_medical_codes.apply_async((parsed_result, record_id)).get()
+                logger.info(f"Saved medical codes for record {record_id}: {save_result}")
+                
+                # Starte die Beschreibungs-Aktualisierung und WARTE auf das Ergebnis
+                if save_result.get('status') == 'success':
+                    # Änderung hier: .get() statt .delay()
+                    update_result = update_medical_codes_descriptions.apply_async((record_id,)).get()
+                    logger.info(f"Completed description update for record {record_id}: {update_result}")
+                
+                return True
+            else:
+                logger.error(f"Failed to parse extraction result for record {record_id}")
+                return False
+        else:
+            logger.error(f"Extraction failed for record {record_id}: {extraction_result}")
+            return False
+    except Exception as exc:
+        logger.exception(f"Error processing codes for record {record_id}")
+        return False
+
+def parse_medical_codes_xml(xml_string):
+    """
+    Parst das XML-Ergebnis der Code-Extraktion in eine Liste von Dictionaries
+    
+    :param xml_string: XML-String mit extrahierten Codes
+    :return: Liste von Dictionaries mit 'code' und 'type' Keys
+    """
+    try:
+        logger.info("Parsing medical codes XML")
+        result = []
+        root = ET.fromstring(xml_string)
+        
+        # ICD-10 Codes
+        icd10_elem = root.find("icd10_codes")
+        if icd10_elem is not None:
+            for code_elem in icd10_elem.findall("code"):
+                if code_elem.text:
+                    result.append({
+                        'code': code_elem.text,
+                        'type': 'ICD10'
+                    })
+        
+        # ICD-11 Codes
+        icd11_elem = root.find("icd11_codes")
+        if icd11_elem is not None:
+            for code_elem in icd11_elem.findall("code"):
+                if code_elem.text:
+                    result.append({
+                        'code': code_elem.text,
+                        'type': 'ICD11'
+                    })
+        
+        # OPS Codes
+        ops_elem = root.find("ops_codes")
+        if ops_elem is not None:
+            for code_elem in ops_elem.findall("code"):
+                if code_elem.text:
+                    result.append({
+                        'code': code_elem.text,
+                        'type': 'OPS'
+                    })
+        
+        logger.info(f"Parsed {len(result)} medical codes from XML")
+        return result
+    except Exception as e:
+        logger.exception(f"Error parsing medical codes XML: {e}")
+        return None
+
+
+@celery.task(bind=True)
+def update_medical_codes_descriptions(self, health_record_id):
+    """
+    Aktualisiert die Beschreibungen aller Medical Codes eines Health Records
+    
+    :param health_record_id: ID des Health Records
+    """
+    try:
+        medical_codes = MedicalCode.query.filter_by(health_record_id=health_record_id).all()
+        logger.info(f"Aktualisiere Beschreibungen für {len(medical_codes)} medizinische Codes für Record {health_record_id}")
+        
+        codes_updated = 0
+        codes_skipped = 0
+        codes_failed = 0
+        
+        for code in medical_codes:
+            # Prüfe, ob der Code bereits eine Beschreibung hat
+            had_description_before = bool(code.description)
+            
+            if had_description_before:
+                codes_skipped += 1
+                logger.info(f"Code {code.code} ({code.code_type}) hat bereits eine Beschreibung - übersprungen")
+                continue
+                
+            # Aktualisiere die Beschreibung für Codes ohne Beschreibung
+            success = update_medical_code_description(code)
+            
+            if success:
+                codes_updated += 1
+                logger.info(f"Beschreibung für Code {code.code} ({code.code_type}) erfolgreich aktualisiert")
+            else:
+                codes_failed += 1
+                logger.error(f"Konnte Beschreibung für Code {code.code} ({code.code_type}) nicht aktualisieren")
+            
+            # Kleine Pause zwischen den API-Aufrufen
+            time.sleep(1)
+        
+        logger.info(f"Beschreibungsaktualisierung abgeschlossen für Record {health_record_id}: "
+                   f"{codes_updated} aktualisiert, {codes_skipped} übersprungen, {codes_failed} fehlgeschlagen")
+        return True
+    except Exception as e:
+        logger.exception(f"Fehler bei der Aktualisierung der Medical Codes für Record {health_record_id}: {str(e)}")
+        return False

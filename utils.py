@@ -9,6 +9,11 @@ import google.generativeai as genai
 from tenacity import retry, wait_random_exponential, stop_after_attempt
 from datetime import datetime
 from models import db, TaskMonitor
+import requests
+from requests.auth import HTTPBasicAuth
+import logging
+
+logger = logging.getLogger(__name__)
 
 openai_model = os.environ["OPENAI_MODEL"]
 genai.configure(api_key=os.environ["GEMINI_API_KEY"])
@@ -179,3 +184,139 @@ def update_task_monitor(task_monitor_id, start_date=None, end_date=None, token_c
 
 def mark_notification_sent(task_monitor_id):
     return update_task_monitor(task_monitor_id, notification_sent=True)
+
+def get_icd_access_token():
+    """
+    Holt einen Access Token von der WHO ICD API
+    """
+    token_endpoint = "https://icdaccessmanagement.who.int/connect/token"
+    client_id = os.getenv("ICD_API_CLIENT_ID")
+    client_secret = os.getenv("ICD_API_CLIENT_SECRET")
+    scope = "icdapi_access"
+    
+    try:
+        response = requests.post(
+            token_endpoint,
+            data={"grant_type": "client_credentials", "scope": scope},
+            auth=HTTPBasicAuth(client_id, client_secret)
+        )
+        
+        if response.status_code != 200:
+            print(f"Fehler beim Abrufen des Tokens: {response.status_code}")
+            return None
+        
+        return response.json().get("access_token")
+    except Exception as e:
+        print(f"Fehler beim Token-Abruf: {str(e)}")
+        return None
+
+@retry(wait=wait_random_exponential(min=1, max=40), stop=stop_after_attempt(3))
+def get_icd10_description(code):
+    """
+    Ruft die Beschreibung für einen ICD-10 Code ab
+    
+    :param code: Der ICD-10 Code (z.B. 'J20')
+    :return: Die Beschreibung des Codes oder None im Fehlerfall
+    """
+    token = get_icd_access_token()
+    if not token:
+        return None
+    
+    api_url = f"https://id.who.int/icd/release/10/2016/{code}"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
+        "Accept-Language": "en",
+        "API-Version": "v2"
+    }
+    
+    try:
+        response = requests.get(api_url, headers=headers)
+        
+        if response.status_code != 200:
+            print(f"Fehler beim API-Aufruf für Code {code}: {response.status_code}")
+            return None
+        
+        data = response.json()
+        # Extrahiere den Titel (Hauptbeschreibung) aus der API-Antwort
+        if "title" in data and "@value" in data["title"]:
+            return data["title"]["@value"]
+        
+        return None
+    
+    except Exception as e:
+        print(f"Fehler beim Abruf der Beschreibung für Code {code}: {str(e)}")
+        return None
+
+@retry(wait=wait_random_exponential(min=1, max=40), stop=stop_after_attempt(3))
+def get_icd11_description(code):
+    """
+    Ruft die Beschreibung für einen ICD-11 Code ab
+    
+    :param code: Der ICD-11 Code (z.B. 'MG22')
+    :return: Die Beschreibung des Codes oder None im Fehlerfall
+    """
+    token = get_icd_access_token()
+    if not token:
+        return None
+    
+    api_url = f"https://id.who.int/icd/release/11/2025-01/mms/describe"
+    params = {
+        'code': code,
+        'simplify': 'false',
+        'flexiblemode': 'false',
+        'convertToTerminalCodes': 'false'
+    }
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
+        "Accept-Language": "en",
+        "API-Version": "v2"
+    }
+    
+    try:
+        response = requests.get(api_url, headers=headers, params=params)
+        
+        if response.status_code != 200:
+            print(f"Fehler beim API-Aufruf für Code {code}: {response.status_code}")
+            return None
+        
+        data = response.json()
+        # Extrahiere das Label (Hauptbeschreibung) aus der API-Antwort
+        if "label" in data:
+            return data["label"]
+        
+        return None
+    
+    except Exception as e:
+        print(f"Fehler beim Abruf der Beschreibung für Code {code}: {str(e)}")
+        return None
+
+def update_medical_code_description(medical_code):
+    """
+    Aktualisiert die Beschreibung eines Medical Code Eintrags
+    
+    :param medical_code: MedicalCode Objekt
+    :return: True wenn erfolgreich, False sonst
+    """
+    try:
+        if medical_code.code_type == 'ICD10':
+            description = get_icd10_description(medical_code.code)
+        elif medical_code.code_type == 'ICD11':
+            description = get_icd11_description(medical_code.code)
+        else:
+            # Für andere Code-Typen (z.B. OPS)
+            logger.info(f"Code-Typ {medical_code.code_type} wird nicht unterstützt für Beschreibungsabfrage")
+            return False
+            
+        if description:
+            medical_code.description = description
+            db.session.commit()
+            return True
+        
+        logger.warning(f"Keine Beschreibung gefunden für Code {medical_code.code} ({medical_code.code_type})")
+        return False
+    except Exception as e:
+        logger.exception(f"Fehler beim Update der Beschreibung für Code {medical_code.code}: {str(e)}")
+        db.session.rollback()
+        return False

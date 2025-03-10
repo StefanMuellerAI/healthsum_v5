@@ -49,8 +49,29 @@
     </div>
 </div>
 
+<!-- Spinner/Processing Overlay mit sichtbarem Debug-Bereich -->
+<div id="processing-overlay" class="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50" style="display: none;">
+    <div class="bg-white p-6 rounded-lg shadow-xl max-w-md text-center">
+        <svg class="mx-auto h-16 w-16 text-blue-500 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        <h3 class="mt-4 text-lg font-semibold text-gray-900">Verarbeitung läuft</h3>
+        <div id="spinner-debug" class="mt-2 text-xs text-gray-500 text-left overflow-auto max-h-32 p-2 border border-gray-200 rounded">
+            Warte auf Ereignisse...
+        </div>
+    </div>
+</div>
+
 <script>
+// Globale Variablen
 let currentRecordId = null; // Variable zum Speichern der aktuellen Datensatz-ID
+window.activeTasks = new Set(); // Aktive Tasks verfolgen
+
+// Socket.io-Verbindung herstellen
+const socket = io('/tasks', {
+    transports: ['websocket']
+});
 
 function loadReports(recordId) {
     currentRecordId = recordId; // Setzen der aktuellen Datensatz-ID
@@ -110,49 +131,193 @@ function loadReports(recordId) {
 
 // Funktion zum Generieren des Berichts
 function generateReport(reportTemplateId) {
-    if (confirm('Möchten Sie diesen Bericht generieren?')) {
-        fetch(`/generate_report/${currentRecordId}/${reportTemplateId}`, {
-            method: 'POST',
-            headers: {
-                'X-Requested-With': 'XMLHttpRequest',
-                'Content-Type': 'application/json',
-            },
-            credentials: 'include'
-        })
-        .then(response => response.json())
-        .then(data => {
-            alert(data.message);
-            // Aktualisiere die Berichte, um den neuen Bericht anzuzeigen
-            loadReports(currentRecordId);
-        })
-        .catch(error => {
-            console.error('Fehler beim Generieren des Berichts:', error);
-        });
-    }
+    console.log("generateReport aufgerufen mit Template-ID:", reportTemplateId);
+    
+    // DIREKTER TEST: Zeige den Spinner mit der einfachsten Methode
+    document.getElementById('processing-overlay').style.display = 'flex';
+    document.getElementById('spinner-debug').innerHTML = "Template-ID: " + reportTemplateId + " wird generiert...";
+    
+    fetch(`/generate_report/${currentRecordId}/${reportTemplateId}`, {
+        method: 'POST',
+        headers: {
+            'X-Requested-With': 'XMLHttpRequest',
+            'Content-Type': 'application/json',
+        },
+        credentials: 'include'
+    })
+    .then(response => response.json())
+    .then(data => {
+        document.getElementById('spinner-debug').innerHTML += "<br>API-Antwort erhalten: " + JSON.stringify(data);
+        
+        if (data.task_id) {
+            window.activeTasks.add(data.task_id);
+            socket.emit('join_task_room', {task_id: data.task_id});
+        }
+    })
+    .catch(error => {
+        document.getElementById('spinner-debug').innerHTML += "<br>FEHLER: " + error.toString();
+    });
+    
+    return false; // Verhindere weitere Event-Ausbreitung
 }
 
-// Funktion zum Neu-Generieren des Berichts
+// Komplett neue regenerateReport-Funktion mit direkter Konsolenausgabe
 function regenerateReport(reportId) {
-    if (confirm('Sind Sie sicher, dass Sie den Bericht neu generieren möchten?')) {
-        fetch(`/regenerate_report/${reportId}`, {
-            method: 'POST',
-            headers: {
-                'X-Requested-With': 'XMLHttpRequest',
-                'Content-Type': 'application/json',
-            },
-            credentials: 'include'
-        })
-        .then(response => response.json())
-        .then(data => {
-            alert(data.message);
-            // Reload the reports to show the updated content
-            loadReports(currentRecordId);
-        })
-        .catch(error => {
-            console.error('Fehler beim Neu-Generieren des Berichts:', error);
-        });
-    }
+    console.log("regenerateReport aufgerufen mit ID: " + reportId);
+    
+    // DIREKTER TEST: Zeige den Spinner mit der einfachsten Methode
+    document.getElementById('processing-overlay').style.display = 'flex';
+    document.getElementById('spinner-debug').innerHTML = "Report-ID: " + reportId + " wird regeneriert...";
+    
+    fetch(`/regenerate_report/${reportId}`, {
+        method: 'POST',
+        headers: {
+            'X-Requested-With': 'XMLHttpRequest',
+            'Content-Type': 'application/json',
+        },
+        credentials: 'include'
+    })
+    .then(response => response.json())
+    .then(data => {
+        document.getElementById('spinner-debug').innerHTML += "<br>API-Antwort erhalten: " + JSON.stringify(data);
+        
+        if (data.task_id) {
+            window.activeTasks.add(data.task_id);
+            socket.emit('join_task_room', {task_id: data.task_id});
+        }
+        
+        if (data.status === 'succeeded' && 
+            (data.result && data.result.includes('Report') && data.result.includes('generiert'))) {
+            document.getElementById('spinner-debug').innerHTML += "<br>Spezialfall: Report regeneriert erkannt";
+            window.activeTasks.clear();
+            
+            // Spinner mit kurzer Verzögerung ausblenden
+            setTimeout(function() {
+                document.getElementById('processing-overlay').style.display = 'none';
+                loadReports(currentRecordId);
+            }, 1000);
+            return;
+        }
+    })
+    .catch(error => {
+        document.getElementById('spinner-debug').innerHTML += "<br>FEHLER: " + error.toString();
+        // Bei Fehlern den Spinner NICHT ausblenden - wir wollen sehen was passiert
+    });
+    
+    return false; // Verhindere weitere Event-Ausbreitung
 }
+
+// Testen wir die Socket.io-Initialisierung direkt
+document.addEventListener('DOMContentLoaded', function() {
+    // Teste, ob Socket.io geladen ist
+    if (typeof io !== 'undefined') {
+        try {
+            // Versuche aktiv, eine Verbindung herzustellen
+            window.socket = io('/tasks', {
+                transports: ['websocket', 'polling']  // Versuche beide Verbindungsarten
+            });
+  
+        } catch(e) {
+            alert("Fehler beim Initialisieren des Sockets: " + e.toString());
+        }
+    } else {
+        alert("Socket.io ist NICHT geladen!");
+    }
+});
+
+// Spinner-Funktionen
+function showGlobalSpinner() {
+    const overlay = document.getElementById('processing-overlay');
+    overlay.classList.remove('hidden');
+    overlay.style.display = 'flex';
+    
+    // Stelle sicher, dass der Spinner über allem anderen liegt
+    overlay.style.zIndex = '9999';
+    
+    // Deaktiviere Interaktionen mit dem Rest der Seite
+    document.body.style.pointerEvents = 'none';
+    document.getElementById('processing-overlay').style.pointerEvents = 'auto';
+    
+    // Speichere die Startzeit des Spinners
+    window.spinnerStartTime = new Date().getTime();
+}
+
+function hideGlobalSpinner() {
+    const overlay = document.getElementById('processing-overlay');
+    overlay.classList.add('hidden');
+    
+    // Aktiviere Interaktionen mit der Seite wieder
+    document.body.style.pointerEvents = 'auto';
+}
+
+// Socket.io Event Handler für Task-Status-Updates - komplett korrigiert
+socket.on('task_status', function(data) {
+    console.log('Task status update:', data);
+    
+    try {
+        document.getElementById('spinner-debug').innerHTML += "<br>Task-Status: " + data.status + 
+                                                         (data.task_id ? " (ID: " + data.task_id + ")" : "");
+    } catch(e) {}
+    
+    // Task-ID aus den Daten extrahieren
+    const taskId = data.task_id || '';
+    
+    // FALL 1: Task wird gestartet
+    if (data.status && (data.status.includes('_started') || data.status === 'processing')) {
+        if (taskId) window.activeTasks.add(taskId);
+        document.getElementById('processing-overlay').style.display = 'flex';
+    }
+    // FALL 2: Task ist abgeschlossen
+    else if (data.status && (
+        data.status.includes('_completed') || 
+        data.status === 'error' || 
+        data.status === 'finished' || 
+        data.status === 'done' ||
+        data.status === 'succeeded'  // Wichtig für generate_single_report
+    )) {
+        if (taskId) window.activeTasks.delete(taskId);
+        
+        // SPEZIALFALL 1: Bei create_report_completed oder anderen report-bezogenen Events
+        if (data.status === 'create_report_completed' || 
+            data.status.includes('report') ||
+            (data.result && typeof data.result === 'string' && 
+             (data.result.includes('Report') || data.result.includes('Bericht')))) {
+            
+            console.log('Spezialfall: Report-Aktion abgeschlossen erkannt');
+            window.activeTasks.clear();
+            document.getElementById('processing-overlay').style.display = 'none';
+            loadReports(currentRecordId);  // Korrigierte Funktion!
+            return;
+        }
+        
+        // Normaler Fall: Wenn keine aktiven Tasks mehr, Spinner ausblenden
+        if (window.activeTasks.size === 0) {
+            document.getElementById('processing-overlay').style.display = 'none';
+            loadReports(currentRecordId);  // Korrigierte Funktion!
+        }
+    }
+});
+
+// Zusätzlich: Füge einen direkten Abschluss-Listener hinzu
+socket.on('report_completed', function(data) {
+    document.getElementById('spinner-debug').innerHTML += "<br><strong>Direktes Report-Completed-Event erhalten!</strong>";
+    window.activeTasks.clear();
+    setTimeout(function() {
+        document.getElementById('processing-overlay').style.display = 'none';
+        loadReports(currentRecordId);
+    }, 2000);
+});
+
+// Letzter Notnagel: Maximale Dauer für den Spinner auf 60 Sekunden begrenzen
+setTimeout(function() {
+    const overlay = document.getElementById('processing-overlay');
+    if (overlay && overlay.style.display === 'flex') {
+        document.getElementById('spinner-debug').innerHTML += "<br><strong>Zeitüberschreitung: 60 Sekunden sind verstrichen.</strong> Spinner wird ausgeblendet.";
+        window.activeTasks.clear();
+        document.getElementById('processing-overlay').style.display = 'none';
+        loadReports(currentRecordId);
+    }
+}, 60000); // 60 Sekunden
 
 // Suchfunktion für die Liste der Datensätze
 document.getElementById('searchInput').addEventListener('input', function() {
