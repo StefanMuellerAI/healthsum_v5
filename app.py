@@ -6,6 +6,7 @@ import logging
 from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, abort
 from werkzeug.utils import secure_filename
 from flask_socketio import SocketIO, emit, join_room
+from flask import send_from_directory
 from celery_config import create_celery_app
 from models import db, HealthRecord, Report, User, ReportTemplate, TaskMonitor
 from celery import chain
@@ -288,7 +289,8 @@ def get_report(report_id):
             'patient_id': report.health_record.id,
             'user_id': report.health_record.user_id,
             'content': report.content,
-            'output_format': report.report_template.output_format
+            'output_format': report.report_template.output_format,
+            'example_structure': report.report_template.example_structure
         }
     return None
 
@@ -392,6 +394,7 @@ def get_template(template_id):
         'example_structure': template.example_structure,
         'system_prompt': template.system_prompt,
         'prompt': template.prompt,
+        'system_pdf_filename': template.system_pdf_filename,
         'summarizer': template.summarizer,
         'use_custom_instructions': template.use_custom_instructions
     })
@@ -407,6 +410,7 @@ def update_template():
         template.example_structure = data['example_structure']
         template.system_prompt = data['system_prompt']
         template.prompt = data['prompt']
+        template.system_pdf_filename = data.get('system_pdf_filename')
         template.summarizer = data['summarizer']
         template.use_custom_instructions = data['use_custom_instructions']
         template.last_updated = datetime.utcnow()
@@ -441,6 +445,7 @@ def create_template():
             example_structure=data['example_structure'],
             system_prompt=data['system_prompt'],
             prompt=data['prompt'],
+            system_pdf_filename=data.get('system_pdf_filename'),
             summarizer=data['summarizer'],
             use_custom_instructions=data['use_custom_instructions']
         )
@@ -806,6 +811,117 @@ def remove_file_from_record(record_id, filename):
 
     except Exception as e:
         logger.exception("Error in remove_file_from_record")
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# System PDF Management Routes
+@app.route('/upload_system_pdf/<int:template_id>', methods=['POST'])
+@login_required
+def upload_system_pdf(template_id):
+    if current_user.level != 'admin':
+        abort(403)
+    
+    if 'file' not in request.files:
+        return jsonify({'success': False, 'error': 'Keine Datei ausgewählt'}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'success': False, 'error': 'Keine Datei ausgewählt'}), 400
+    
+    if not file.filename.lower().endswith('.pdf'):
+        return jsonify({'success': False, 'error': 'Nur PDF-Dateien sind erlaubt'}), 400
+    
+    try:
+        template = ReportTemplate.query.get_or_404(template_id)
+        
+        # Erstelle sicheren Dateinamen mit Template-ID als Präfix
+        original_filename = secure_filename(file.filename)
+        safe_filename = f"template_{template_id}_{original_filename}"
+        
+        # Stelle sicher, dass der system/prompts Ordner existiert
+        system_prompts_dir = os.path.join(app.root_path, 'system', 'prompts')
+        os.makedirs(system_prompts_dir, exist_ok=True)
+        
+        # Lösche alte PDF falls vorhanden
+        if template.system_pdf_filename:
+            old_path = os.path.join(system_prompts_dir, template.system_pdf_filename)
+            if os.path.exists(old_path):
+                os.remove(old_path)
+        
+        # Speichere neue PDF
+        file_path = os.path.join(system_prompts_dir, safe_filename)
+        file.save(file_path)
+        
+        # Update Template
+        template.system_pdf_filename = safe_filename
+        template.last_updated = datetime.utcnow()
+        db.session.commit()
+        
+        return jsonify({
+            'success': True, 
+            'filename': safe_filename,
+            'message': 'PDF erfolgreich hochgeladen'
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+@app.route('/download_system_pdf/<int:template_id>')
+@login_required
+def download_system_pdf(template_id):
+    if current_user.level != 'admin':
+        abort(403)
+    
+    try:
+        template = ReportTemplate.query.get_or_404(template_id)
+        
+        if not template.system_pdf_filename:
+            return jsonify({'error': 'Keine PDF-Datei vorhanden'}), 404
+        
+        system_prompts_dir = os.path.join(app.root_path, 'system', 'prompts')
+        file_path = os.path.join(system_prompts_dir, template.system_pdf_filename)
+        
+        if not os.path.exists(file_path):
+            return jsonify({'error': 'PDF-Datei nicht gefunden'}), 404
+        
+        return send_from_directory(
+            system_prompts_dir, 
+            template.system_pdf_filename, 
+            as_attachment=True,
+            download_name=f"{template.template_name}.pdf"
+        )
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/delete_system_pdf/<int:template_id>', methods=['DELETE'])
+@login_required
+def delete_system_pdf(template_id):
+    if current_user.level != 'admin':
+        abort(403)
+    
+    try:
+        template = ReportTemplate.query.get_or_404(template_id)
+        
+        if not template.system_pdf_filename:
+            return jsonify({'success': False, 'error': 'Keine PDF-Datei vorhanden'}), 404
+        
+        # Lösche Datei vom Dateisystem
+        system_prompts_dir = os.path.join(app.root_path, 'system', 'prompts')
+        file_path = os.path.join(system_prompts_dir, template.system_pdf_filename)
+        
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        
+        # Update Template in Datenbank
+        template.system_pdf_filename = None
+        template.last_updated = datetime.utcnow()
+        db.session.commit()
+        
+        return jsonify({'success': True, 'message': 'PDF erfolgreich gelöscht'})
+        
+    except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'error': str(e)}), 500
 

@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
+
 <div class="container mx-auto px-4 max-w-full">
     <h2 class="text-3xl font-bold mb-6">Report Details</h2>
     <div class="bg-white shadow-lg rounded-lg overflow-hidden">
@@ -16,6 +17,38 @@
             <div class="overflow-x-auto">
                 <table id="reportTable" class="display w-full"></table>
             </div>
+            
+            <!-- Report-Daten über Script-Variable (zuverlässiger als data-Attribute) -->
+            {% if report.content %}
+            <!-- START: Linter ignore block -->
+            <script type="text/javascript">
+                window.reportData = {{ report.content | tojson | safe }};
+                window.reportMeta = {
+                    patientName: {{ report.patient_name | tojson | safe }},
+                    createdAt: {{ report.created_at | tojson | safe }}
+                };
+            </script>
+            <!-- END: Linter ignore block -->
+            {% else %}
+            <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mt-4">
+                <p class="text-lg text-yellow-800 font-bold">⚠️ Keine Report-Daten vorhanden</p>
+                <p class="text-sm text-yellow-700 mt-2">
+                    Dieser Report hat keinen Inhalt. Möglicherweise ist der Report noch nicht vollständig verarbeitet worden 
+                    oder es gab einen Fehler bei der Generierung.
+                </p>
+                <p class="text-sm text-yellow-700 mt-2">
+                    <strong>Report-ID:</strong> {{ report.id }}<br>
+                    <strong>Typ:</strong> {{ report.type }}<br>
+                    <strong>Status:</strong> {{ report.status if report.status else 'Unbekannt' }}
+                </p>
+            </div>
+            <!-- START: Linter ignore block -->
+            <script type="text/javascript">
+                window.reportData = null;
+                window.reportMeta = null;
+            </script>
+            <!-- END: Linter ignore block -->
+            {% endif %}
         </div>
     </div>
 </div>
@@ -86,64 +119,6 @@
 <script type="text/javascript" charset="utf8" src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.1.3/jszip.min.js"></script>
 <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/buttons/1.7.0/js/buttons.html5.min.js"></script>
 
-<script>
-$(document).ready(function() {
-    var reportData;
-    try {
-        reportData = JSON.parse('{{ report.content | tojson | safe }}');
-    } catch (e) {
-        console.error("Fehler beim Parsen der Daten:", e);
-        reportData = {{ report.content | safe }};
-    }
-    if (!Array.isArray(reportData) && reportData.Behandlungen) {
-        reportData = reportData.Behandlungen;
-    }
-    
-    if (reportData && reportData.length > 0) {
-        var columns = Object.keys(reportData[0]).map(function(key) {
-            if (key === 'Datum') {
-                return {
-                    title: key,
-                    data: key,
-                    render: function(data, type, row) {
-                        if (type === 'sort' || type === 'type') {
-                            return data;
-                        }
-                        var date = new Date(data);
-                        var day = date.getDate().toString().padStart(2, '0');
-                        var month = (date.getMonth() + 1).toString().padStart(2, '0');
-                        var year = date.getFullYear();
-                        return day + '.' + month + '.' + year;
-                    }
-                };
-            }
-            return { title: key, data: key };
-        });
-
-        $('#reportTable').DataTable({
-            data: reportData,
-            columns: columns,
-            order: [[0, 'desc']],
-            paging: false,
-            info: false,
-            scrollX: true,
-            language: {
-                url: '//cdn.datatables.net/plug-ins/1.10.24/i18n/German.json'
-            },
-            dom: 'Bfrt',
-            buttons: [
-                {
-                    extend: 'excel',
-                    text: 'Als Excel herunterladen',
-                    className: 'bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded mt-4',
-                    filename: 'Report_{{ report.patient_name }}_{{ report.created_at }}',
-                    title: 'Report für {{ report.patient_name }} vom {{ report.created_at }}'
-                }
-            ]
-        });
-    } else {
-        $('#reportTable').html('<p class="text-lg text-gray-600">Keine Daten verfügbar oder Fehler beim Laden.</p>');
-    }
-});
-</script>
+<!-- Report-Viewer JavaScript -->
+<script type="text/javascript" src="{{ url_for('static', filename='report-viewer.js') }}"></script>
 {% endblock %}

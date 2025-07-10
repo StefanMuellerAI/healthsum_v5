@@ -149,6 +149,108 @@ def get_formatted_medical_codes(record_id):
         logger.error(f"Fehler beim Abrufen der medizinischen Codes: {e}")
         return ""
 
+def generate_gemini_schema_from_example(example_structure):
+    """
+    Generiert ein Gemini JSON Schema aus einer example_structure
+    
+    Args:
+        example_structure (str): JSON-String der Beispielstruktur
+        
+    Returns:
+        content.Schema: Gemini Schema-Objekt
+    """
+    try:
+        if not example_structure or not example_structure.strip():
+            logger.warning("Keine example_structure vorhanden, verwende Standard-Schema")
+            return get_default_gemini_schema()
+            
+        # Parse example structure
+        example_json = json.loads(example_structure)
+        logger.info(f"Generiere Schema aus example_structure: {list(example_json.keys())}")
+        
+        return build_schema_recursive(example_json)
+        
+    except Exception as e:
+        logger.error(f"Fehler beim Generieren des Schemas aus example_structure: {e}")
+        logger.info("Verwende Standard-Schema als Fallback")
+        return get_default_gemini_schema()
+
+def build_schema_recursive(obj, is_root=True):
+    """
+    Baut rekursiv ein Gemini Schema aus einem JSON-Objekt
+    """
+    if isinstance(obj, dict):
+        properties = {}
+        required_keys = []
+        
+        for key, value in obj.items():
+            properties[key] = build_schema_recursive(value, False)
+            required_keys.append(key)
+        
+        return content.Schema(
+            type=content.Type.OBJECT,
+            required=required_keys,
+            properties=properties
+        )
+    
+    elif isinstance(obj, list):
+        if len(obj) > 0:
+            # Verwende das erste Element als Template für das Array
+            item_schema = build_schema_recursive(obj[0], False)
+            return content.Schema(
+                type=content.Type.ARRAY,
+                items=item_schema
+            )
+        else:
+            # Leeres Array - verwende generisches Object
+            return content.Schema(
+                type=content.Type.ARRAY,
+                items=content.Schema(type=content.Type.OBJECT)
+            )
+    
+    elif isinstance(obj, str):
+        return content.Schema(type=content.Type.STRING)
+    
+    elif isinstance(obj, int):
+        return content.Schema(type=content.Type.INTEGER)
+    
+    elif isinstance(obj, float):
+        return content.Schema(type=content.Type.NUMBER)
+    
+    elif isinstance(obj, bool):
+        return content.Schema(type=content.Type.BOOLEAN)
+    
+    else:
+        # Fallback für unbekannte Typen
+        return content.Schema(type=content.Type.STRING)
+
+def get_default_gemini_schema():
+    """
+    Gibt das Standard-Schema zurück (das bisherige hart codierte)
+    """
+    return content.Schema(
+        type=content.Type.OBJECT,
+        enum=[],
+        required=["Bericht"],
+        properties={
+            "Bericht": content.Schema(
+                type=content.Type.ARRAY,
+                items=content.Schema(
+                    type=content.Type.OBJECT,
+                    enum=[],
+                    required=["Datum", "Code", "Diagnose", "Beschreibung", "Arzt"],
+                    properties={
+                        "Datum": content.Schema(type=content.Type.STRING),
+                        "Code": content.Schema(type=content.Type.STRING),
+                        "Diagnose": content.Schema(type=content.Type.STRING),
+                        "Beschreibung": content.Schema(type=content.Type.STRING),
+                        "Arzt": content.Schema(type=content.Type.STRING),
+                    },
+                ),
+            ),
+        },
+    )
+
 # Funktion für die Erstellung des Berichts mit GPT-4
 def generate_report_gpt4(output_format, example_structure, system_prompt, prompt, health_record_text, year, health_record_custom_instructions, use_custom_instructions, record_id=None, medical_codes_text=None):
     """
@@ -245,13 +347,46 @@ def generate_report_gpt4(output_format, example_structure, system_prompt, prompt
         logger.error(f"Fehler bei der Verarbeitung mit GPT-4: {e}")
         return None
 
+# Hilfsfunktion zum Laden von System-PDFs
+def get_system_pdf_path(filename):
+    """Gibt den vollständigen Pfad zur System-PDF zurück"""
+    if not filename:
+        return None
+    system_prompts_dir = os.path.join(os.path.dirname(__file__), 'system', 'prompts')
+    return os.path.join(system_prompts_dir, filename)
+
+def load_system_pdf_for_gemini(pdf_filename):
+    """Lädt eine System-PDF für Gemini hoch"""
+    if not pdf_filename:
+        return None
+    
+    pdf_path = get_system_pdf_path(pdf_filename)
+    if not pdf_path or not os.path.exists(pdf_path):
+        logger.warning(f"System-PDF nicht gefunden: {pdf_path}")
+        return None
+    
+    try:
+        logger.info(f"Lade System-PDF für Gemini: {pdf_path}")
+        pdf_file = genai.upload_file(path=pdf_path)
+        logger.info(f"System-PDF erfolgreich hochgeladen: {pdf_file.name}")
+        return pdf_file
+    except Exception as e:
+        logger.error(f"Fehler beim Hochladen der System-PDF: {e}")
+        return None
+
 # Funktion für die Erstellung des Berichts mit Google Gemini
-def generate_report_gemini(output_format, example_structure, system_prompt, prompt, health_record_text, year, health_record_custom_instructions, use_custom_instructions, record_id=None, medical_codes_text=None):
+def generate_report_gemini(output_format, example_structure, system_prompt, prompt, health_record_text, year, health_record_custom_instructions, use_custom_instructions, record_id=None, medical_codes_text=None, system_pdf_filename=None):
     """
     Generiert einen Bericht für ein spezifisches Jahr mit Google Gemini
+    Unterstützt optional eine System-PDF als zusätzlichen Kontext
     """
     try:
         logger.info(f"Starte Gemini Bericht für Jahr {year}")
+        
+        # System-PDF laden falls vorhanden
+        system_pdf_file = load_system_pdf_for_gemini(system_pdf_filename)
+        if system_pdf_file:
+            logger.info(f"System-PDF wird verwendet: {system_pdf_filename}")
         
         if not use_custom_instructions:
             year_focussed_actual_prompt = (
@@ -271,50 +406,19 @@ def generate_report_gemini(output_format, example_structure, system_prompt, prom
             f"Consider the following additional important information for the analysis of the dataset: {health_record_custom_instructions}\n\n"
         )
 
-
         logger.info(f"Gemini Prompt: {year_focussed_actual_prompt}")
         logger.info(f"Gemini Model: {os.environ['GEMINI_MODEL']}")
 
-
-        
         try:
             if output_format.lower() == "json":
-                # Strukturiertes JSON Output Schema
+                # Generiere Schema aus example_structure
+                response_schema = generate_gemini_schema_from_example(example_structure)
+                logger.info("Verwende dynamisch generiertes Schema basierend auf example_structure")
+                
                 generation_config = {
                     "temperature": 0.2,
                     "max_output_tokens": 8192,
-                    "response_schema": content.Schema(
-                        type=content.Type.OBJECT,
-                        enum=[],
-                        required=["Bericht"],
-                        properties={
-                            "Bericht": content.Schema(
-                                type=content.Type.ARRAY,
-                                items=content.Schema(
-                                    type=content.Type.OBJECT,
-                                    enum=[],
-                                    required=["Datum", "Code", "Diagnose", "Beschreibung", "Arzt"],
-                                    properties={
-                                        "Datum": content.Schema(
-                                            type=content.Type.STRING,
-                                        ),
-                                        "Code": content.Schema(
-                                            type=content.Type.STRING,
-                                        ),
-                                        "Diagnose": content.Schema(
-                                            type=content.Type.STRING,
-                                        ),
-                                        "Beschreibung": content.Schema(
-                                            type=content.Type.STRING,
-                                        ),
-                                        "Arzt": content.Schema(
-                                            type=content.Type.STRING,
-                                        ),
-                                    },
-                                ),
-                            ),
-                        },
-                    ),
+                    "response_schema": response_schema,
                     "response_mime_type": "application/json",
                 }
             else:
@@ -332,9 +436,20 @@ def generate_report_gemini(output_format, example_structure, system_prompt, prom
                 history=[]
             )
 
-            response = chat_session.send_message(
-                f"{year_focussed_actual_prompt}\n\nDas ist deine Datenbasis: {health_record_text}",
-            )
+            # Erstelle die Nachricht mit oder ohne PDF
+            if system_pdf_file:
+                # Mit System-PDF
+                message_content = [
+                    system_pdf_file,
+                    f"{year_focussed_actual_prompt}\n\nDas ist deine Datenbasis: {health_record_text}"
+                ]
+                logger.info("Sende Nachricht mit System-PDF an Gemini")
+            else:
+                # Ohne System-PDF (Standard)
+                message_content = f"{year_focussed_actual_prompt}\n\nDas ist deine Datenbasis: {health_record_text}"
+                logger.info("Sende Nachricht ohne System-PDF an Gemini")
+
+            response = chat_session.send_message(message_content)
             response_text = response.text.strip()
             logger.info(f"Google Gemini API-Antwort erhalten: {response_text[:100]}...")
 
@@ -343,14 +458,19 @@ def generate_report_gemini(output_format, example_structure, system_prompt, prom
                     json_data = json.loads(response_text)
                     logger.info(f"Google Gemini JSON erfolgreich geparst für Jahr {year}.")
                     
-                    # Extrahiere die Daten direkt aus dem "Bericht" Schlüssel
-                    data = json_data.get("Bericht", [])
+                    # Extrahiere den ersten Schlüssel aus der Beispielstruktur
+                    example_structure_json = json.loads(example_structure)
+                    first_key = next(iter(example_structure_json.keys()))
+                    
+                    # Extrahiere die Daten aus dem ersten Schlüssel
+                    data = json_data.get(first_key, [])
                     
                     # Bereinigung von Whitespaces
                     for item in data:
-                        for key, value in item.items():
-                            if isinstance(value, str):
-                                item[key] = value.strip()
+                        if isinstance(item, dict):
+                            for key, value in item.items():
+                                if isinstance(value, str):
+                                    item[key] = value.strip()
 
                     # Konvertiere in DataFrame
                     df = pd.DataFrame(data)
@@ -380,7 +500,7 @@ def generate_report_gemini(output_format, example_structure, system_prompt, prom
         return None
 
 # Hauptfunktion zur Generierung des Berichts
-def generate_report(template_name, output_format, example_structure, system_prompt, prompt, health_record_text, health_record_token_count, health_record_begin, health_record_end, health_record_custom_instructions, use_custom_instructions, record_id=None, medical_codes_text=None):
+def generate_report(template_name, output_format, example_structure, system_prompt, prompt, health_record_text, health_record_token_count, health_record_begin, health_record_end, health_record_custom_instructions, use_custom_instructions, record_id=None, medical_codes_text=None, system_pdf_filename=None):
     """
     Generiert einen kombinierten Gesundheitsbericht für den angegebenen Zeitraum (mehrere Jahre).
     """
@@ -410,7 +530,7 @@ def generate_report(template_name, output_format, example_structure, system_prom
                 yearly_report = generate_report_gemini(
                     output_format, example_structure, system_prompt, 
                     prompt, health_record_text, year, health_record_custom_instructions, 
-                    use_custom_instructions, record_id, medical_codes_text
+                    use_custom_instructions, record_id, medical_codes_text, system_pdf_filename
                 )
             else:
                 yearly_report = generate_report_gpt4(

@@ -363,7 +363,8 @@ def regenerate_report_task(self, report_id):
             health_record_end=health_record.medical_history_end,
             use_custom_instructions=template.use_custom_instructions,
             record_id=health_record.id,
-            medical_codes_text=medical_codes_list
+            medical_codes_text=medical_codes_list,
+            system_pdf_filename=template.system_pdf_filename
         )
 
         # Aktualisieren des Berichts
@@ -431,7 +432,8 @@ def create_report(self, data, original_task_id=None):
                 health_record_end=health_record.medical_history_end,
                 use_custom_instructions=template.use_custom_instructions,
                 record_id=health_record_id,
-                medical_codes_text=medical_codes_list
+                medical_codes_text=medical_codes_list,
+                system_pdf_filename=template.system_pdf_filename
             )
 
             # Erstelle einen neuen Report
@@ -498,7 +500,8 @@ def generate_single_report(self, record_id, template_id):
            health_record_custom_instructions=record.custom_instructions,
            use_custom_instructions=template.use_custom_instructions,
            record_id=record_id,
-           medical_codes_text=medical_codes_list    
+           medical_codes_text=medical_codes_list,
+           system_pdf_filename=template.system_pdf_filename
        )    
 
        if report_content:

@@ -53,6 +53,7 @@ class ReportTemplate(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     last_updated = db.Column(db.DateTime, nullable=True)
     use_custom_instructions = db.Column(db.Boolean, nullable=True)
+    system_pdf_filename = db.Column(db.String(255), nullable=True)  # Dateiname der System-PDF
     
     reports = db.relationship('Report', back_populates='report_template', cascade='all, delete-orphan')
 

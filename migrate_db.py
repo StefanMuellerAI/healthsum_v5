@@ -125,7 +125,8 @@ def migrate_data():
                     summarizer=old_template.summarizer,
                     created_at=old_template.created_at,
                     last_updated=old_template.last_updated,
-                    use_custom_instructions=False  # Neue Spalte mit Standardwert
+                    use_custom_instructions=False,  # Neue Spalte mit Standardwert
+                    system_pdf_filename=None  # Neue Spalte für System-PDF Dateiname
                 )
                 new_session.add(new_template)
             

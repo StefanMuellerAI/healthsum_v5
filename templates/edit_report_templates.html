@@ -35,6 +35,14 @@
                                     <p class="text-sm text-gray-500">
                                         Output Format: {{ template.output_format }}
                                     </p>
+                                    {% if template.system_pdf_filename %}
+                                    <p class="text-sm text-green-600 flex items-center">
+                                        <svg class="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                            <path d="M4 4a2 2 0 00-2 2v8a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2H4zm2 2h8v2H6V6zm0 4h8v2H6v-2z"/>
+                                        </svg>
+                                        PDF vorhanden
+                                    </p>
+                                    {% endif %}
                                 </div>
                             </div>
                         </div>
@@ -102,6 +110,50 @@
                         Der eigentliche Prompt, der dem KI-Modell übergeben wird.
                     </p>
                     <textarea id="prompt" name="prompt" rows="4" class="mt-1 block w-full px-4 py-3 border border-gray-300 rounded-lg"></textarea>
+                </div>
+
+                <div>
+                    <label class="block text-lg font-medium text-gray-700">
+                        System PDF Datei (Optional)
+                    </label>
+                    <p class="text-sm text-gray-500">
+                        Optional: PDF-Datei, die als zusätzlicher Kontext für Gemini verwendet wird. 
+                        Die Datei wird automatisch im system/prompts/ Ordner gespeichert.
+                    </p>
+                    
+                    <!-- Aktueller PDF-Status -->
+                    <div id="currentPdfStatus" class="mt-3 p-3 bg-gray-50 rounded-lg hidden">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center">
+                                <svg class="w-5 h-5 text-red-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                    <path d="M4 4a2 2 0 00-2 2v8a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2H4zm2 2h8v2H6V6zm0 4h8v2H6v-2z"/>
+                                </svg>
+                                <span id="currentPdfName" class="text-sm font-medium text-gray-700"></span>
+                            </div>
+                            <div class="flex space-x-2">
+                                <button type="button" id="downloadPdfBtn" 
+                                        class="px-3 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200">
+                                    Download
+                                </button>
+                                <button type="button" id="deletePdfBtn" 
+                                        class="px-3 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200">
+                                    Löschen
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- PDF Upload -->
+                    <div class="mt-3">
+                        <input type="file" id="systemPdfFile" name="systemPdfFile" 
+                               accept="application/pdf" 
+                               class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+                        <input type="hidden" id="systemPdfFilename" name="systemPdfFilename">
+                    </div>
+                    
+                    <p class="mt-1 text-xs text-gray-400">
+                        💡 Tipp: Die PDF-Datei sollte strukturiert und maschinenlesbar sein. Sie wird nur bei Gemini-basierten Reports verwendet.
+                    </p>
                 </div>
 
                 <div id="summarizerField" class="hidden">
@@ -209,8 +261,12 @@ function loadTemplate(templateId) {
         document.getElementById('exampleStructure').value = data.example_structure;
         document.getElementById('systemPrompt').value = data.system_prompt;
         document.getElementById('prompt').value = data.prompt;
+        document.getElementById('systemPdfFilename').value = data.system_pdf_filename || '';
         document.getElementById('summarizer').checked = data.summarizer;
         document.getElementById('useCustomInstructions').checked = data.use_custom_instructions;
+
+        // Update PDF-Status anzeigen
+        updatePdfStatus(data.system_pdf_filename);
 
         // Initiale Anzeige des Summarizer-Feldes
         toggleSummarizerField();
@@ -301,6 +357,7 @@ document.getElementById('templateForm').addEventListener('submit', function(even
         example_structure: document.getElementById('exampleStructure').value,
         system_prompt: document.getElementById('systemPrompt').value,
         prompt: document.getElementById('prompt').value,
+        system_pdf_filename: document.getElementById('systemPdfFilename').value,
         summarizer: document.getElementById('summarizer').checked,
         use_custom_instructions: document.getElementById('useCustomInstructions').checked
     };
@@ -330,6 +387,7 @@ document.getElementById('saveAsNewButton').addEventListener('click', function() 
         example_structure: document.getElementById('exampleStructure').value,
         system_prompt: document.getElementById('systemPrompt').value,
         prompt: document.getElementById('prompt').value,
+        system_pdf_filename: document.getElementById('systemPdfFilename').value,
         summarizer: document.getElementById('summarizer').checked,
         use_custom_instructions: document.getElementById('useCustomInstructions').checked
     };
@@ -376,6 +434,103 @@ document.getElementById('deleteButton').addEventListener('click', function() {
         })
         .catch(error => console.error('Fehler beim Löschen des Templates:', error));
     }
+});
+
+// PDF Management Functions
+function updatePdfStatus(pdfFilename) {
+    const statusDiv = document.getElementById('currentPdfStatus');
+    const nameSpan = document.getElementById('currentPdfName');
+    
+    if (pdfFilename) {
+        statusDiv.classList.remove('hidden');
+        nameSpan.textContent = pdfFilename;
+    } else {
+        statusDiv.classList.add('hidden');
+        nameSpan.textContent = '';
+    }
+}
+
+// PDF Upload Handler
+document.getElementById('systemPdfFile').addEventListener('change', function(event) {
+    const file = event.target.files[0];
+    const templateId = document.getElementById('templateId').value;
+    
+    if (!file || !templateId) {
+        return;
+    }
+    
+    if (file.type !== 'application/pdf') {
+        alert('Nur PDF-Dateien sind erlaubt.');
+        return;
+    }
+    
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    // Upload PDF
+    fetch(`/upload_system_pdf/${templateId}`, {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            document.getElementById('systemPdfFilename').value = data.filename;
+            updatePdfStatus(data.filename);
+            alert('PDF erfolgreich hochgeladen!');
+        } else {
+            alert(`Fehler beim Upload: ${data.error}`);
+        }
+    })
+    .catch(error => {
+        console.error('Upload-Fehler:', error);
+        alert('Fehler beim Upload der PDF-Datei.');
+    });
+});
+
+// PDF Download Handler
+document.getElementById('downloadPdfBtn').addEventListener('click', function() {
+    const templateId = document.getElementById('templateId').value;
+    
+    if (!templateId) {
+        alert('Kein Template ausgewählt.');
+        return;
+    }
+    
+    window.open(`/download_system_pdf/${templateId}`, '_blank');
+});
+
+// PDF Delete Handler
+document.getElementById('deletePdfBtn').addEventListener('click', function() {
+    const templateId = document.getElementById('templateId').value;
+    
+    if (!templateId) {
+        alert('Kein Template ausgewählt.');
+        return;
+    }
+    
+    if (!confirm('Sind Sie sicher, dass Sie die PDF-Datei löschen möchten?')) {
+        return;
+    }
+    
+    fetch(`/delete_system_pdf/${templateId}`, {
+        method: 'DELETE'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            document.getElementById('systemPdfFilename').value = '';
+            updatePdfStatus('');
+            document.getElementById('systemPdfFile').value = '';
+            alert('PDF erfolgreich gelöscht!');
+        } else {
+            alert(`Fehler beim Löschen: ${data.error}`);
+        }
+    })
+    .catch(error => {
+        console.error('Lösch-Fehler:', error);
+        alert('Fehler beim Löschen der PDF-Datei.');
+    });
 });
 </script>
 {% endblock %}
