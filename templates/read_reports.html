@@ -233,6 +233,65 @@ function startReportStatusPolling(recordId, templateId) {
     }, 600000);
 }
 
+// Neues Polling mit spezifischer Report-ID
+function startReportStatusPollingById(recordId, reportId, templateId) {
+    const pollingKey = `${recordId}-report-${reportId}`;
+    
+    // Prüfe ob bereits ein Polling für diesen spezifischen Report läuft
+    if (activePollingIntervals[pollingKey]) {
+        console.log(`Polling already active for ${pollingKey}`);
+        return;
+    }
+    
+    console.log(`Starting report status polling for record ${recordId}, specific report ${reportId}`);
+    
+    const pollInterval = setInterval(() => {
+        if (document.hidden) return; // spare Requests, wenn Tab nicht sichtbar
+        
+        fetch(`/get_reports/${recordId}`)
+            .then(response => response.json())
+            .then(data => {
+                // Suche nach der SPEZIFISCHEN Report-ID, nicht nur template
+                const report = data.reports.find(r => r.id === reportId);
+                
+                if (report) {
+                    console.log(`Found specific report ${reportId} with status: ${report.generation_status}`);
+                    
+                    if (report.generation_status !== 'generating') {
+                        console.log(`✅ Report ${reportId} status changed to: ${report.generation_status}`);
+                        // Stoppe dieses Polling
+                        clearInterval(activePollingIntervals[pollingKey]);
+                        delete activePollingIntervals[pollingKey];
+                        // Aktualisiere Reports ohne neue Polling-Intervalle zu starten
+                        loadReports(recordId, false);
+                    }
+                } else {
+                    console.warn(`⚠️ Specific report ${reportId} not found in polling check`);
+                    // Möglicherweise wurde der Report gelöscht?
+                    clearInterval(activePollingIntervals[pollingKey]);
+                    delete activePollingIntervals[pollingKey];
+                    loadReports(recordId, false);
+                }
+            })
+            .catch(error => {
+                console.error('Error in report status polling by ID:', error);
+                clearInterval(activePollingIntervals[pollingKey]);
+                delete activePollingIntervals[pollingKey];
+            });
+    }, 5000); // Alle 5 Sekunden prüfen
+    
+    // Speichere das Intervall
+    activePollingIntervals[pollingKey] = pollInterval;
+    
+    // Auto-stop nach 10 Minuten
+    setTimeout(() => {
+        if (activePollingIntervals[pollingKey]) {
+            clearInterval(activePollingIntervals[pollingKey]);
+            delete activePollingIntervals[pollingKey];
+        }
+    }, 600000);
+}
+
 // Hilfsfunktion zum Stoppen eines spezifischen Pollings
 function stopPollingForReport(recordId, templateId) {
     const pollingKey = `${recordId}-${templateId}`;
@@ -464,8 +523,7 @@ function generateReport(reportTemplateId) {
         }
     }
     
-    // Starte Status-Polling sofort
-    startReportStatusPolling(currentRecordId, reportTemplateId);
+    // WICHTIG: Noch kein Polling starten - warten auf die Report-ID vom Server!
     
     fetch(`/generate_report/${currentRecordId}/${reportTemplateId}`, {
         method: 'POST',
@@ -486,8 +544,14 @@ function generateReport(reportTemplateId) {
             button.classList.add('bg-green-500', 'hover:bg-green-600');
             button.classList.remove('bg-gray-400', 'cursor-not-allowed');
             button.textContent = 'Generieren';
+        } else if (data.report_id) {
+            // Starte Polling mit der spezifischen Report-ID
+            console.log(`Starting polling for specific report ID: ${data.report_id}`);
+            startReportStatusPollingById(currentRecordId, data.report_id, reportTemplateId);
+        } else {
+            // Fallback zum alten Verhalten wenn keine report_id zurückgegeben wird
+            startReportStatusPolling(currentRecordId, reportTemplateId);
         }
-        // Das Polling übernimmt die Status-Updates
     })
     .catch(error => {
         console.error("Report generation request failed:", error);

@@ -780,10 +780,37 @@ def generate_report_route(record_id, template_id):
     if existing_report:
         return jsonify({'message': 'Der Bericht existiert bereits. Bitte nutzen Sie die Funktion "Neu generieren".'}), 400
 
-    # Starten des Celery-Tasks zum Generieren des Berichts
-    task = generate_single_report.apply_async(args=[record_id, template_id])
-
-    return jsonify({'message': 'Der Bericht wird generiert. Diese Aktion kann einige Zeit dauern.'})
+    try:
+        # Template holen
+        template = ReportTemplate.query.get_or_404(template_id)
+        
+        # Erstelle den Report bereits hier mit Status "generating"
+        new_report = Report(
+            health_record_id=record_id,
+            report_template_id=template_id,
+            report_type=template.template_name,
+            generation_status='generating',
+            generation_started_at=datetime.utcnow()
+        )
+        db.session.add(new_report)
+        db.session.commit()
+        report_id = new_report.id
+        
+        logger.info(f"Created new report {report_id} with status 'generating'")
+        
+        # Starten des Celery-Tasks zum Generieren des Berichts mit der Report-ID
+        task = generate_single_report.apply_async(args=[record_id, template_id, report_id])
+        
+        return jsonify({
+            'message': 'Der Bericht wird generiert. Diese Aktion kann einige Zeit dauern.',
+            'task_id': task.id,
+            'report_id': report_id  # Gebe die Report-ID zurück für das Polling
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error creating report: {str(e)}")
+        return jsonify({'error': f'Fehler beim Erstellen des Berichts: {str(e)}'}), 500
 
 @app.route('/delete_template', methods=['POST'])
 @login_required

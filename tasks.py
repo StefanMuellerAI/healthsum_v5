@@ -25,6 +25,7 @@ import pickle
 from pdf2image import convert_from_bytes
 from functools import wraps
 from PIL import Image
+import re
 
 # Konfigurieren des Loggings
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -1243,12 +1244,20 @@ def combine_extractions(self, extraction_results, filenames, patient_name, recor
 
         logger.info(f"Processing {len(extraction_results)} extraction results...")
         
+        # WICHTIG: Sortiere die Ergebnisse nach Extraktionsmethode für konsistente Reihenfolge
+        # Die Reihenfolge in aggregate_extraction_results ist: pdf_text, ocr, azure_vision, gpt4_vision
+        extraction_methods = ['pdf_text', 'ocr', 'azure_vision', 'gpt4_vision']
+        sorted_results = []
+        
         for i, result in enumerate(extraction_results):
             logger.info(f"Result {i}: Type={type(result)}, Content preview: {str(result)[:200]}")
             
             if isinstance(result, str):
-                valid_results.append(result)
-                logger.info(f"Valid result {i}: Added text result of length {len(result)}")
+                # Extrahiere die Methode aus dem XML-Tag
+                method_match = re.search(r'<extraction method="([^"]+)">', result)
+                method = method_match.group(1) if method_match else f"unknown_{i}"
+                sorted_results.append((method, result))
+                logger.info(f"Valid result {i}: Added {method} result of length {len(result)}")
             elif isinstance(result, dict) and 'exc_message' in result:
                 errors.append(result['exc_message'])
                 logger.error(f"Extraction error in result {i}: {result['exc_message']}")
@@ -1257,8 +1266,21 @@ def combine_extractions(self, extraction_results, filenames, patient_name, recor
                 logger.warning(f"Unexpected extraction result {i}: Type={type(result)}, Value={result}")
                 # Versuch, es trotzdem zu verwenden falls es Text ist
                 if result and str(result).strip():
-                    valid_results.append(str(result))
+                    sorted_results.append((f"unknown_{i}", str(result)))
                     logger.info(f"Converting result {i} to string and using it")
+        
+        # Sortiere nach der definierten Reihenfolge
+        def sort_key(item):
+            method = item[0]
+            try:
+                return extraction_methods.index(method)
+            except ValueError:
+                return len(extraction_methods)  # Unbekannte Methoden ans Ende
+        
+        sorted_results.sort(key=sort_key)
+        valid_results = [result for method, result in sorted_results]
+        
+        logger.info(f"Sorted extraction results in consistent order: {[method for method, _ in sorted_results]}")
 
         logger.info(f"Summary: {len(valid_results)} valid results, {len(errors)} errors")
         
@@ -1666,7 +1688,7 @@ def create_report(self, data, original_task_id=None):
         db.session.close()
 
 @celery.task(bind=True)
-def generate_single_report(self, record_id, template_id):
+def generate_single_report(self, record_id, template_id, report_id=None):
     logger.info(f"Generiere Bericht für Datensatz-ID {record_id} und Template-ID {template_id}")
     start_time = datetime.utcnow()
     
@@ -1678,19 +1700,27 @@ def generate_single_report(self, record_id, template_id):
             logger.error("Datensatz oder Template nicht gefunden.")
             return f"Fehler: Datensatz oder Template nicht gefunden."
         
-        # Erstelle neuen Report mit "generating" Status
-        new_report = Report(
-            health_record_id=record_id,
-            report_template_id=template_id,
-            report_type=template.template_name,
-            generation_status='generating',
-            generation_started_at=start_time
-        )
-        db.session.add(new_report)
-        db.session.commit()
-        report_id = new_report.id
-        
-        logger.info(f"Report {report_id} status set to 'generating'")
+        # Wenn report_id übergeben wurde, verwende den existierenden Report
+        if report_id:
+            report = Report.query.get(report_id)
+            if not report:
+                logger.error(f"Report mit ID {report_id} nicht gefunden.")
+                return f"Fehler: Report mit ID {report_id} nicht gefunden."
+            logger.info(f"Using existing report {report_id} with status 'generating'")
+        else:
+            # Fallback: Erstelle neuen Report (für Abwärtskompatibilität)
+            new_report = Report(
+                health_record_id=record_id,
+                report_template_id=template_id,
+                report_type=template.template_name,
+                generation_status='generating',
+                generation_started_at=start_time
+            )
+            db.session.add(new_report)
+            db.session.commit()
+            report_id = new_report.id
+            report = new_report
+            logger.info(f"Created new report {report_id} with status 'generating'")
         
         medical_codes_list = [
              {"code": code.code, "description": code.description}
@@ -1717,18 +1747,18 @@ def generate_single_report(self, record_id, template_id):
 
         if report_content:
             # Report erfolgreich generiert
-            new_report.content = report_content
-            new_report.generation_status = 'completed'
-            new_report.generation_completed_at = datetime.utcnow()
+            report.content = report_content
+            report.generation_status = 'completed'
+            report.generation_completed_at = datetime.utcnow()
             db.session.commit()
             
             logger.info(f"Report {report_id} für Datensatz-ID {record_id} und Template-ID {template_id} erfolgreich generiert.")
             return f"Report wurde erfolgreich generiert."
         else:
             # Report-Generierung fehlgeschlagen
-            new_report.generation_status = 'failed'
-            new_report.generation_completed_at = datetime.utcnow()
-            new_report.generation_error_message = "Report-Generierung lieferte leeren Inhalt"
+            report.generation_status = 'failed'
+            report.generation_completed_at = datetime.utcnow()
+            report.generation_error_message = "Report-Generierung lieferte leeren Inhalt"
             db.session.commit()
             
             logger.error(f"Report {report_id} Generierung fehlgeschlagen: Leerer Inhalt")
@@ -1737,13 +1767,14 @@ def generate_single_report(self, record_id, template_id):
     except Exception as e:
         # Bei Fehler: Report als fehlgeschlagen markieren
         try:
-            if 'report_id' in locals():
+            if 'report_id' in locals() and report_id:
                 report = Report.query.get(report_id)
                 if report:
                     report.generation_status = 'failed'
                     report.generation_completed_at = datetime.utcnow()
                     report.generation_error_message = str(e)[:1000]  # Begrenzen auf 1000 Zeichen
                     db.session.commit()
+                    logger.info(f"Marked report {report_id} as failed")
         except Exception as db_exc:
             logger.error(f"Failed to update report status after error: {db_exc}")
         

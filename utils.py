@@ -56,9 +56,11 @@ def find_patient_info(input_text, token_count):
     """
     try:
         current_year = datetime.now().year
+        # Erhöhte Schwelle für konsistente Modellauswahl
         model_used = "GPT-4" if token_count <= 20000 else "Google Gemini"
+        print(f"find_patient_info: Token count = {token_count}, using model: {model_used}")
         
-        if token_count <= 16000:
+        if token_count <= 20000:
             # GPT-4 wird verwendet
             response = openai_client.chat.completions.create(
                 model=openai_model,  # Stellen Sie sicher, dass Sie das korrekte Modell verwenden
@@ -102,12 +104,16 @@ def find_patient_info(input_text, token_count):
         patient_name = response_dict.get('patient_name')
 
         # Sicherstellen, dass wir gültige Jahreszahlen haben
+        original_start = start_year
+        original_end = end_year
         start_year = int(start_year) if start_year else current_year
         end_year = int(end_year) if end_year else current_year
 
         # Sicherstellen, dass patient_name ein String oder None ist
         patient_name = str(patient_name) if patient_name else None
 
+        print(f"find_patient_info results: start_year={original_start} -> {start_year}, end_year={original_end} -> {end_year}, patient={patient_name}")
+        
         return start_year, end_year, patient_name
 
     except json.JSONDecodeError as e:
