@@ -421,6 +421,18 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Starte das einfache Polling für diesen Datensatz
                 startSimpleProcessingPolling(data.record_id);
                 
+                // HIER DIE WICHTIGEN ÄNDERUNGEN: Reset das Formular komplett
+                mainForm.reset();  // Resettet alle Formularfelder
+                mainFileList.innerHTML = '';  // Leert die Dateiliste
+                
+                // Verstecke Custom Instructions falls geöffnet
+                const customInstructionsContainer = document.getElementById('customInstructionsContainer');
+                const customInstructionsArrow = document.getElementById('customInstructionsArrow');
+                if (!customInstructionsContainer.classList.contains('hidden')) {
+                    customInstructionsContainer.classList.add('hidden');
+                    customInstructionsArrow.classList.remove('rotate-180');
+                }
+                
                 // Schließe Upload-UI sofort
                 resetUploadUI();
                 hideGlobalSpinner();
