@@ -1250,24 +1250,38 @@ def combine_extractions(self, extraction_results, filenames, patient_name, recor
         sorted_results = []
         
         for i, result in enumerate(extraction_results):
-            logger.info(f"Result {i}: Type={type(result)}, Content preview: {str(result)[:200]}")
-            
-            if isinstance(result, str):
-                # Extrahiere die Methode aus dem XML-Tag
-                method_match = re.search(r'<extraction method="([^"]+)">', result)
-                method = method_match.group(1) if method_match else f"unknown_{i}"
-                sorted_results.append((method, result))
-                logger.info(f"Valid result {i}: Added {method} result of length {len(result)}")
-            elif isinstance(result, dict) and 'exc_message' in result:
-                errors.append(result['exc_message'])
-                logger.error(f"Extraction error in result {i}: {result['exc_message']}")
-                logger.error(f"Full error result {i}: {result}")
-            else:
-                logger.warning(f"Unexpected extraction result {i}: Type={type(result)}, Value={result}")
-                # Versuch, es trotzdem zu verwenden falls es Text ist
+            try:
+                logger.info(f"Result {i}: Type={type(result)}, Content preview: {str(result)[:200]}")
+                
+                if isinstance(result, str):
+                    # Extrahiere die Methode aus dem XML-Tag
+                    method = f"unknown_{i}"  # Default
+                    try:
+                        if '<extraction method="' in result:
+                            start_idx = result.find('<extraction method="') + len('<extraction method="')
+                            end_idx = result.find('">', start_idx)
+                            if start_idx > 0 and end_idx > start_idx:
+                                method = result[start_idx:end_idx]
+                    except Exception as method_exc:
+                        logger.warning(f"Failed to extract method from result {i}: {method_exc}")
+                    
+                    sorted_results.append((method, result))
+                    logger.info(f"Valid result {i}: Added {method} result of length {len(result)}")
+                elif isinstance(result, dict) and 'exc_message' in result:
+                    errors.append(result['exc_message'])
+                    logger.error(f"Extraction error in result {i}: {result['exc_message']}")
+                    logger.error(f"Full error result {i}: {result}")
+                else:
+                    logger.warning(f"Unexpected extraction result {i}: Type={type(result)}, Value={result}")
+                    # Versuch, es trotzdem zu verwenden falls es Text ist
+                    if result and str(result).strip():
+                        sorted_results.append((f"unknown_{i}", str(result)))
+                        logger.info(f"Converting result {i} to string and using it")
+            except Exception as process_exc:
+                logger.error(f"Exception processing result {i}: {process_exc}")
+                # Versuche trotzdem den Inhalt zu verwenden wenn möglich
                 if result and str(result).strip():
-                    sorted_results.append((f"unknown_{i}", str(result)))
-                    logger.info(f"Converting result {i} to string and using it")
+                    sorted_results.append((f"error_{i}", str(result)))
         
         # Sortiere nach der definierten Reihenfolge
         def sort_key(item):
@@ -1277,10 +1291,14 @@ def combine_extractions(self, extraction_results, filenames, patient_name, recor
             except ValueError:
                 return len(extraction_methods)  # Unbekannte Methoden ans Ende
         
-        sorted_results.sort(key=sort_key)
-        valid_results = [result for method, result in sorted_results]
-        
-        logger.info(f"Sorted extraction results in consistent order: {[method for method, _ in sorted_results]}")
+        try:
+            sorted_results.sort(key=sort_key)
+            valid_results = [result for method, result in sorted_results]
+            logger.info(f"Sorted extraction results in consistent order: {[method for method, _ in sorted_results]}")
+        except Exception as sort_exc:
+            logger.error(f"Failed to sort results: {sort_exc}")
+            # Fallback: verwende unsortierte Ergebnisse
+            valid_results = [result for method, result in sorted_results]
 
         logger.info(f"Summary: {len(valid_results)} valid results, {len(errors)} errors")
         

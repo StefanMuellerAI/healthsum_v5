@@ -60,7 +60,7 @@ def find_patient_info(input_text, token_count):
         model_used = "GPT-4" if token_count <= 20000 else "Google Gemini"
         print(f"find_patient_info: Token count = {token_count}, using model: {model_used}")
         
-        if token_count <= 20000:
+        if token_count <= 100:
             # GPT-4 wird verwendet
             response = openai_client.chat.completions.create(
                 model=openai_model,  # Stellen Sie sicher, dass Sie das korrekte Modell verwenden
