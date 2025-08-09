@@ -12,23 +12,44 @@
                 <p><strong>Erstellt am:</strong> {{ report.created_at }}</p>
                 <p><strong>Datensatz:</strong> {{ report.patient_name }} (ID: {{ report.patient_id }})</p>
             </div>
+            {% if report.unique_identifier %}
+            <div class="mb-6 p-3 bg-gray-100 rounded-lg">
+                <p class="text-sm text-gray-700"><strong>Bezeichnung:</strong> <span class="font-mono">{{ report.unique_identifier }}</span></p>
+            </div>
+            {% endif %}
             
             <!-- DataTable für den Report-Inhalt -->
             <div class="overflow-x-auto">
                 <table id="reportTable" class="display w-full"></table>
             </div>
             
-            <!-- Report-Daten über Script-Variable (zuverlässiger als data-Attribute) -->
+            <!-- Report-Daten über data-Attribute -->
             {% if report.content %}
-            <!-- START: Linter ignore block -->
+            <div id="reportDataContainer" 
+                 data-report-content='{{ report.content | tojson }}' 
+                 data-patient-name='{{ report.patient_name | tojson }}' 
+                 data-created-at='{{ report.created_at | tojson }}'
+                 style="display: none;">
+            </div>
             <script type="text/javascript">
-                window.reportData = {{ report.content | tojson | safe }};
-                window.reportMeta = {
-                    patientName: {{ report.patient_name | tojson | safe }},
-                    createdAt: {{ report.created_at | tojson | safe }}
-                };
+                // Lade Daten sofort aus data-Attributen (nicht auf DOMContentLoaded warten)
+                (function() {
+                    const container = document.getElementById('reportDataContainer');
+                    if (container) {
+                        try {
+                            window.reportData = JSON.parse(container.getAttribute('data-report-content'));
+                            window.reportMeta = {
+                                patientName: JSON.parse(container.getAttribute('data-patient-name')),
+                                createdAt: JSON.parse(container.getAttribute('data-created-at'))
+                            };
+                        } catch (e) {
+                            console.error('Fehler beim Parsen der Report-Daten:', e);
+                            window.reportData = null;
+                            window.reportMeta = null;
+                        }
+                    }
+                })();
             </script>
-            <!-- END: Linter ignore block -->
             {% else %}
             <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mt-4">
                 <p class="text-lg text-yellow-800 font-bold">⚠️ Keine Report-Daten vorhanden</p>
@@ -42,12 +63,10 @@
                     <strong>Status:</strong> {{ report.status if report.status else 'Unbekannt' }}
                 </p>
             </div>
-            <!-- START: Linter ignore block -->
             <script type="text/javascript">
                 window.reportData = null;
                 window.reportMeta = null;
             </script>
-            <!-- END: Linter ignore block -->
             {% endif %}
         </div>
     </div>

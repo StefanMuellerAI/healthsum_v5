@@ -68,7 +68,7 @@ def find_patient_info(input_text, token_count):
                     {"role": "user",
                      "content": f"Take a deep breath now! Concentrate! Find me across the whole medical history and all files the earliest year (start_year) and the latest year (end_year) of treatments, as well as the patient's name in this input. Give it back as a JSON object: {input_text}. It can be that start_year equals end_year because the medical history is just one year long. If you can't find a specific piece of information, use null for that field."},
                 ],
-                max_tokens=500,
+                max_completion_tokens=500,
                 temperature=0.1,
                 response_format={"type": "json_object"}
             )
@@ -310,13 +310,28 @@ def update_medical_code_description(medical_code):
             return False
             
         if description:
-            medical_code.description = description
-            db.session.commit()
-            return True
+            # App-Context für Celery-Tasks erstellen
+            try:
+                from app import app
+                with app.app_context():
+                    medical_code.description = description
+                    db.session.commit()
+                    return True
+            except Exception as app_ctx_exc:
+                logger.error(f"App context error for code {medical_code.code}: {app_ctx_exc}")
+                # Fallback: Versuche ohne App-Context (falls im Flask-Request)
+                medical_code.description = description
+                db.session.commit()
+                return True
         
         logger.warning(f"Keine Beschreibung gefunden für Code {medical_code.code} ({medical_code.code_type})")
         return False
     except Exception as e:
         logger.exception(f"Fehler beim Update der Beschreibung für Code {medical_code.code}: {str(e)}")
-        db.session.rollback()
+        try:
+            from app import app
+            with app.app_context():
+                db.session.rollback()
+        except:
+            db.session.rollback()
         return False

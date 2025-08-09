@@ -20,6 +20,10 @@ from flask_sqlalchemy import SQLAlchemy
 
 load_dotenv()
 
+# Debug Logging
+import logging
+logger = logging.getLogger(__name__)
+
 # Initialisierung der Clients
 vision_azure_client = ImageAnalysisClient(
     credential=AzureKeyCredential(os.getenv("AZURE_KEY_CREDENTIALS")),
@@ -28,8 +32,15 @@ vision_azure_client = ImageAnalysisClient(
 
 openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 openai_model = os.environ["OPENAI_MODEL"]
+
+logger.info("EXTRACTORS DEBUG: Configuring Gemini...")
 genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-gemini_model = genai.GenerativeModel("gemini-1.5-pro")
+logger.info("EXTRACTORS DEBUG: Creating Gemini model...")
+# Verwende das gleiche Modell wie in reports.py
+gemini_model_name = os.environ.get("GEMINI_MODEL", "gemini-1.5-pro")
+logger.info(f"EXTRACTORS DEBUG: Using Gemini model: {gemini_model_name}")
+gemini_model = genai.GenerativeModel(gemini_model_name)
+logger.info(f"EXTRACTORS DEBUG: Gemini model created, type: {type(gemini_model)}")
 
 db = SQLAlchemy()
 
@@ -121,7 +132,7 @@ class GPT4VisionExtractor(Extractor):
                         ],
                     }
                 ],
-                max_tokens=16000,
+                max_completion_tokens=16000,
             )
             page_texts.append(response.choices[0].message.content)
         return self.create_structured_output("gpt4_vision", os.path.basename(file_path), page_texts)
@@ -147,6 +158,48 @@ class GPT4VisionExtractor(Extractor):
                 base64_image = base64.b64encode(buffer.read()).decode('utf-8')
 
         return base64_image
+
+
+class GeminiVisionExtractor(Extractor):
+    def __init__(self):
+        import logging
+        self.logger = logging.getLogger(__name__)
+        self.logger.info("GEMINI EXTRACTOR DEBUG: Initializing GeminiVisionExtractor")
+        self.logger.info(f"GEMINI EXTRACTOR DEBUG: gemini_model type: {type(gemini_model)}")
+        
+    def extract(self, file_path):
+        self.logger.info(f"GEMINI EXTRACTOR DEBUG: extract called with file_path: {file_path}")
+        page_texts = []
+        with open(file_path, 'rb') as file:
+            pdf_bytes = file.read()
+
+        seiten = pdf2image.convert_from_bytes(pdf_bytes)
+        self.logger.info(f"GEMINI EXTRACTOR DEBUG: Converted PDF to {len(seiten)} images")
+        
+        for i, seite in enumerate(seiten):
+            self.logger.info(f"GEMINI EXTRACTOR DEBUG: Processing image {i}")
+            # Konvertiere Bild zu Bytes für Gemini
+            img_bytes = io.BytesIO()
+            seite.save(img_bytes, format='JPEG', quality=85)
+            img_bytes.seek(0)
+            
+            try:
+                self.logger.info(f"GEMINI EXTRACTOR DEBUG: Calling gemini_model.generate_content for image {i}")
+                response = gemini_model.generate_content([
+                    {
+                        "mime_type": "image/jpeg",
+                        "data": img_bytes.read()
+                    },
+                    "Wandele bitte das Bild in ein Json-Format um."
+                ])
+                page_texts.append(response.text)
+                self.logger.info(f"GEMINI EXTRACTOR DEBUG: Successfully processed image {i}")
+            except Exception as e:
+                self.logger.error(f"GEMINI EXTRACTOR DEBUG: Error processing image {i}: {e}")
+                # Bei Fehler leere Seite hinzufügen
+                page_texts.append("")
+                
+        return self.create_structured_output("gemini_vision", os.path.basename(file_path), page_texts)
 
 
 class CodeExtractor(Extractor):

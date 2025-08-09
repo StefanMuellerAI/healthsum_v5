@@ -11,6 +11,11 @@
                 <p><strong>Erstellt am:</strong> {{ report.created_at }}</p>
                 <p><strong>Datensatz:</strong> {{ report.patient_name }} (ID: {{ report.patient_id }})</p>
             </div>
+            {% if report.unique_identifier %}
+            <div class="mb-6 p-3 bg-gray-100 rounded-lg">
+                <p class="text-sm text-gray-700"><strong>Bezeichnung:</strong> <span class="font-mono">{{ report.unique_identifier }}</span></p>
+            </div>
+            {% endif %}
             <!-- Anzeige des Textberichts -->
             <div class="prose max-w-none">
                 <pre class="whitespace-pre-wrap">{{ report.content }}</pre>

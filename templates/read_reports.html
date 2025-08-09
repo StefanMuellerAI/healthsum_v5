@@ -40,7 +40,17 @@
         </div>
         <!-- Right Column: Reports for Selected Record -->
         <div class="lg:w-2/3">
-            <h2 class="text-3xl font-bold mb-2">Berichte</h2>
+            <div class="flex items-center gap-2 mb-2">
+                <h2 class="text-3xl font-bold">Berichte</h2>
+                <button id="reportTaskLogsButton" 
+                        onclick="showReportTaskLogs()" 
+                        class="hidden inline-flex items-center justify-center w-8 h-8 bg-red-500 hover:bg-red-600 text-white rounded-full transition-colors duration-200"
+                        title="Fehlerhafte Report-Tasks anzeigen">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                </button>
+            </div>
             <h3 class="text-xl mb-6">2. Wählen Sie einen Bericht aus, um ihn anzusehen.</h3>
             <div id="reportsContainer" class="space-y-6">
                 <!-- Reports will be loaded here -->
@@ -49,76 +59,344 @@
     </div>
 </div>
 
-<!-- Spinner/Processing Overlay mit sichtbarem Debug-Bereich -->
-<div id="processing-overlay" class="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50" style="display: none;">
-    <div class="bg-white p-6 rounded-lg shadow-xl max-w-md text-center">
-        <svg class="mx-auto h-16 w-16 text-blue-500 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-        </svg>
-        <h3 class="mt-4 text-lg font-semibold text-gray-900">Verarbeitung läuft</h3>
-        <div id="spinner-debug" class="mt-2 text-xs text-gray-500 text-left overflow-auto max-h-32 p-2 border border-gray-200 rounded">
-            Warte auf Ereignisse...
+<!-- Task Logs Modal für Report-Tasks -->
+<div id="reportTaskLogsModal" class="fixed z-10 inset-0 overflow-y-auto hidden" aria-labelledby="report-task-logs-modal-title" role="dialog" aria-modal="true">
+    <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+        <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" aria-hidden="true"></div>
+        <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+        <div class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-3xl sm:w-full">
+            <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                <div class="sm:flex sm:items-start">
+                    <div class="w-full">
+                        <h3 class="text-lg leading-6 font-medium text-gray-900 mb-4" id="report-task-logs-modal-title">
+                            Report-Task Details
+                        </h3>
+                        
+                        <!-- Task Summary -->
+                        <div id="reportTaskLogsSummary" class="mb-4 p-3 bg-gray-50 rounded-lg">
+                            <!-- Summary will be inserted here -->
+                        </div>
+                        
+                        <!-- Task List -->
+                        <div class="mt-4">
+                            <h4 class="text-md font-medium text-gray-700 mb-2">Alle Report-bezogenen Tasks</h4>
+                            <div id="reportTaskLogsList" class="max-h-96 overflow-y-auto space-y-2">
+                                <!-- Task logs will be inserted here -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                <button type="button" 
+                        class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm" 
+                        onclick="closeReportTaskLogsModal()">
+                    Schließen
+                </button>
+            </div>
         </div>
     </div>
 </div>
 
+<!-- Processing Overlay entfernt - dauerhaftes Badge-System verwendet -->
+
+<style>
+@keyframes processing-pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
+}
+
+.processing-pulse {
+    animation: processing-pulse 2s ease-in-out infinite;
+}
+</style>
+
 <script>
 // Globale Variablen
 let currentRecordId = null; // Variable zum Speichern der aktuellen Datensatz-ID
-window.activeTasks = new Set(); // Aktive Tasks verfolgen
+let activePollingIntervals = {}; // Verwalte aktive Polling-Intervalle
 
-// Socket.io-Verbindung herstellen
-const socket = io('/tasks', {
-    transports: ['websocket']
-});
+// Status-Badge-HTML für Reports generieren
+function getReportStatusBadgeHtml(report) {
+    // Sichere Defaults für migrierte Reports
+    const generationStatus = report.generation_status || 'completed';
+    const reportExists = report.exists !== false;  // Default true für migrierte Reports
+    
+    let badgeHtml = '';
+    
+    switch(generationStatus) {
+        case 'generating':
+            badgeHtml = `
+                <div class="mt-2 flex items-center gap-2">
+                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                        <span class="processing-pulse w-2 h-2 bg-yellow-400 rounded-full mr-2"></span>
+                        Report wird generiert...
+                    </span>
+                </div>`;
+            break;
+        case 'completed':
+            badgeHtml = `
+                <div class="mt-2 flex items-center gap-2">
+                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                        <span class="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
+                        Report erfolgreich erstellt
+                    </span>
+                </div>`;
+            break;
+        case 'failed':
+            const errorMessage = report.generation_error_message ? ` (${report.generation_error_message.substring(0, 50)}...)` : '';
+            badgeHtml = `
+                <div class="mt-2 flex items-center gap-2">
+                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                        <span class="w-2 h-2 bg-red-500 rounded-full mr-2"></span>
+                        Report-Generierung fehlgeschlagen${errorMessage}
+                    </span>`;
+            break;
+        case 'pending':
+        default:
+            return ''; // Kein Badge für pending
+    }
+    
+    // Füge Task-Fehler-Indikator hinzu wenn der Report failed ist
+    if (generationStatus === 'failed' && reportExists) {
+        badgeHtml = badgeHtml.replace('</div>', `
+            <button onclick="showReportTaskLogsForSpecificType('${report.report_type}')" 
+                    class="inline-flex items-center justify-center w-6 h-6 bg-red-500 hover:bg-red-600 text-white rounded-full transition-colors duration-200"
+                    title="Details zum Fehler anzeigen">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+            </button>
+        </div>`);
+    }
+    
+    return badgeHtml;
+}
 
-function loadReports(recordId) {
+// Einfaches Polling für Report-Status
+function startReportStatusPolling(recordId, templateId) {
+    const pollingKey = `${recordId}-${templateId}`;
+    
+    // Prüfe ob bereits ein Polling für diesen Report läuft
+    if (activePollingIntervals[pollingKey]) {
+        console.log(`Polling already active for ${pollingKey}`);
+        return;
+    }
+    
+    console.log(`Starting report status polling for record ${recordId}, template ${templateId}`);
+    
+    const pollInterval = setInterval(() => {
+        if (document.hidden) return; // spare Requests, wenn Tab nicht sichtbar
+        
+        fetch(`/get_reports/${recordId}`)
+            .then(response => response.json())
+            .then(data => {
+                console.log(`Polling check for template ${templateId}:`, data.reports.map(r => ({
+                    id: r.report_template_id,
+                    type: typeof r.report_template_id,
+                    status: r.generation_status
+                })));
+                
+                // Verwende loose equality (==) für String/Number Vergleich
+                const report = data.reports.find(r => r.report_template_id == templateId);
+                
+                if (report) {
+                    console.log(`Found report for template ${templateId} with status: ${report.generation_status}`);
+                    
+                    if (report.generation_status !== 'generating') {
+                        console.log(`✅ Report ${templateId} status changed to: ${report.generation_status}`);
+                        // Stoppe dieses Polling
+                        stopPollingForReport(recordId, templateId);
+                        // Aktualisiere Reports ohne neue Polling-Intervalle zu starten
+                        loadReports(recordId, false);
+                    }
+                } else {
+                    console.warn(`⚠️ No report found for template ${templateId} in polling check`);
+                }
+            })
+            .catch(error => {
+                console.error('Error in report status polling:', error);
+                stopPollingForReport(recordId, templateId);
+            });
+    }, 5000); // Alle 5 Sekunden prüfen
+    
+    // Speichere das Intervall
+    activePollingIntervals[pollingKey] = pollInterval;
+    
+    // Auto-stop nach 10 Minuten
+    setTimeout(() => {
+        stopPollingForReport(recordId, templateId);
+    }, 600000);
+}
+
+// Hilfsfunktion zum Stoppen eines spezifischen Pollings
+function stopPollingForReport(recordId, templateId) {
+    const pollingKey = `${recordId}-${templateId}`;
+    if (activePollingIntervals[pollingKey]) {
+        clearInterval(activePollingIntervals[pollingKey]);
+        delete activePollingIntervals[pollingKey];
+        console.log(`Stopped polling for ${pollingKey}`);
+    }
+}
+
+// Hilfsfunktion zum Stoppen aller Pollings
+function stopAllPolling() {
+    Object.keys(activePollingIntervals).forEach(key => {
+        clearInterval(activePollingIntervals[key]);
+    });
+    activePollingIntervals = {};
+    console.log('Stopped all polling intervals');
+}
+
+function loadReports(recordId, startNewPolling = true) {
     currentRecordId = recordId; // Setzen der aktuellen Datensatz-ID
-    fetch(`/get_reports/${recordId}`)
-    .then(response => response.json())
-    .then(data => {
+    
+    // Stoppe alle existierenden Pollings wenn wir einen neuen Record laden
+    if (startNewPolling) {
+        stopAllPolling();
+    }
+    
+    // Lade Reports mit Status-Informationen UND Datensatz-Status
+    Promise.all([
+        fetch(`/get_reports/${recordId}`).then(response => response.json()),
+        fetch(`/get_datasets`).then(response => response.json())
+    ])
+    .then(([reportsData, datasetsData]) => {
+        // Finde den aktuellen Datensatz-Status
+        const currentRecord = datasetsData.find(record => record.id == recordId);
+        const recordProcessingStatus = currentRecord ? currentRecord.processing_status : 'unknown';
         const reportsContainer = document.getElementById('reportsContainer');
         reportsContainer.innerHTML = '';
         
-        if (data.reports.length > 0) {
-            data.reports.forEach(report => {
+        // Zeige oder verstecke das Ausrufezeichen basierend auf fehlgeschlagenen Report-Tasks
+        const reportTaskLogsButton = document.getElementById('reportTaskLogsButton');
+        if (reportsData.has_failed_report_tasks) {
+            reportTaskLogsButton.classList.remove('hidden');
+        } else {
+            reportTaskLogsButton.classList.add('hidden');
+        }
+        
+        // Zeige Datensatz-Status-Banner falls nicht completed
+        if (recordProcessingStatus === 'processing') {
+            const processingBanner = document.createElement('div');
+            processingBanner.className = 'bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6';
+            processingBanner.innerHTML = `
+                <div class="flex items-center">
+                    <svg class="w-5 h-5 text-yellow-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"></path>
+                    </svg>
+                    <h3 class="text-yellow-800 font-medium">Datensatz wird noch verarbeitet</h3>
+                </div>
+                <p class="text-yellow-700 text-sm mt-1">Die Report-Generierung ist erst verfügbar, nachdem die Verarbeitung des Datensatzes abgeschlossen ist.</p>
+            `;
+            reportsContainer.appendChild(processingBanner);
+        } else if (recordProcessingStatus === 'failed') {
+            const failedBanner = document.createElement('div');
+            failedBanner.className = 'bg-red-50 border border-red-200 rounded-lg p-4 mb-6';
+            failedBanner.innerHTML = `
+                <div class="flex items-center">
+                    <svg class="w-5 h-5 text-red-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"></path>
+                    </svg>
+                    <h3 class="text-red-800 font-medium">Datensatz-Verarbeitung fehlgeschlagen</h3>
+                </div>
+                <p class="text-red-700 text-sm mt-1">Die Report-Generierung ist nicht verfügbar, da bei der Verarbeitung des Datensatzes Fehler aufgetreten sind.</p>
+            `;
+            reportsContainer.appendChild(failedBanner);
+        }
+        
+        if (reportsData.reports.length > 0) {
+            reportsData.reports.forEach(report => {
                 const reportCard = document.createElement('div');
                 reportCard.className = 'bg-white shadow-lg rounded-lg overflow-hidden';
 
                 let buttonsHtml = '';
+                let statusIndicator = '';
+                
+                // Prüfe ob Datensatz vollständig verarbeitet wurde
+                const recordCompleted = recordProcessingStatus === 'completed';
+                const recordProcessing = recordProcessingStatus === 'processing';
+                const recordFailed = recordProcessingStatus === 'failed';
 
                 if (report.exists) {
                     // Bericht existiert bereits
+                    const isGenerating = report.generation_status === 'generating';
+                    const isFailed = report.generation_status === 'failed';
+                    const isCompleted = report.generation_status === 'completed';
+                    
+                    // Button-Logik:
+                    // - "Ansehen" ist nur aktiviert wenn Report erfolgreich generiert wurde
+                    // - "Neu generieren" ist aktiviert wenn Datensatz fertig ist UND Report nicht gerade generiert wird
+                    const canViewReport = recordCompleted && isCompleted && !isGenerating;
+                    const canRegenerate = recordCompleted && !isGenerating;
+                    
                     buttonsHtml = `
-                        <a href="/report/${report.id}" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg transition duration-300" aria-label="Bericht ansehen">
+                        <a href="${canViewReport ? '/report/' + report.id : '#'}" 
+                           class="${canViewReport ? 'bg-blue-500 hover:bg-blue-600' : 'bg-gray-400 cursor-not-allowed'} text-white font-bold py-2 px-4 rounded-lg transition duration-300 inline-block" 
+                           ${!canViewReport ? 'onclick="return false;"' : ''}
+                           aria-label="${isFailed ? 'Bericht fehlgeschlagen - nicht verfügbar' : 'Bericht ansehen'}"
+                           ${isFailed ? 'title="Report-Generierung fehlgeschlagen"' : ''}>
                             Ansehen
                         </a>
-                        <button onclick="regenerateReport(${report.id})" class="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-4 rounded-lg transition duration-300" aria-label="Bericht neu generieren">
-                            Neu generieren
+                        <button onclick="regenerateReport(${report.id})" 
+                                class="${canRegenerate ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-gray-400 cursor-not-allowed'} text-white font-bold py-2 px-4 rounded-lg transition duration-300" 
+                                ${!canRegenerate ? 'disabled' : ''} 
+                                aria-label="Bericht neu generieren"
+                                ${isFailed ? 'title="Fehlgeschlagenen Report erneut generieren"' : ''}>
+                            ${isFailed ? 'Erneut versuchen' : 'Neu generieren'}
                         </button>
                     `;
                 } else {
                     // Bericht existiert noch nicht
+                    const generateButtonDisabled = !recordCompleted;
+                    const generateButtonTitle = recordProcessing ? 'Datensatz wird noch verarbeitet' : 
+                                              recordFailed ? 'Datensatz-Verarbeitung fehlgeschlagen' : 
+                                              recordCompleted ? 'Bericht generieren' : 'Datensatz noch nicht verarbeitet';
+                    
                     buttonsHtml = `
-                        <button onclick="generateReport(${report.report_template_id})" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg transition duration-300" aria-label="Bericht generieren">
+                        <button onclick="generateReport(${report.report_template_id})" 
+                                class="${recordCompleted ? 'bg-green-500 hover:bg-green-600' : 'bg-gray-400 cursor-not-allowed'} text-white font-bold py-2 px-4 rounded-lg transition duration-300" 
+                                ${generateButtonDisabled ? 'disabled' : ''} 
+                                title="${generateButtonTitle}"
+                                aria-label="Bericht generieren">
                             Generieren
                         </button>
                     `;
                 }
 
+                // Status-Indicator ist jetzt im Badge integriert
+
                 reportCard.innerHTML = `
-                    <div class="px-6 py-5 flex items-center justify-between">
-                        <div>
-                            <h3 class="text-xl font-semibold mb-1">${report.report_type}</h3>
-                            ${report.exists ? `<p class="text-sm text-gray-500 mb-2">Erstellt am: ${new Date(report.created_at).toLocaleDateString('de-DE')}</p>` : '<p class="text-sm text-gray-500 mb-2">Noch nicht generiert</p>'}
+                    <div class="px-6 py-5">
+                        <div class="flex items-center justify-between mb-2">
+                            <div class="flex-grow">
+                                <h3 class="text-xl font-semibold mb-1">${report.report_type}</h3>
+                                ${report.exists && report.unique_identifier ? 
+                                    `<p class="text-sm text-gray-700 font-mono mb-1">${report.unique_identifier}</p>` : 
+                                    ''}
+                                
+                                ${report.exists ? 
+                                    getReportStatusBadgeHtml(report) : 
+                                    '<p class="text-sm text-gray-500 status-placeholder">Noch nicht generiert</p>'}
+                            </div>
+                            <div class="flex items-center space-x-2 flex-shrink-0">
+                                ${buttonsHtml}
+                            </div>
                         </div>
-                        <div class="flex items-center space-x-2">
-                            ${buttonsHtml}
-                        </div>
+                        ${statusIndicator}
                     </div>
                 `;
                 reportsContainer.appendChild(reportCard);
+                
+                // Starte Polling für Reports mit "generating" Status
+                if (report.generation_status === 'generating' && startNewPolling) {
+                    console.log(`Starting status polling for generating report ${report.report_template_id}`);
+                    startReportStatusPolling(recordId, report.report_template_id);
+                }
             });
         } else {
             reportsContainer.innerHTML = '<p>Für diesen Datensatz sind (noch) keine Berichte verfügbar.</p>';
@@ -129,13 +407,65 @@ function loadReports(recordId) {
     });
 }
 
+// Funktion zum Toggle der Task-Details
+function toggleTaskDetails(recordId) {
+    const detailsDiv = document.getElementById(`taskDetails-${recordId}`);
+    if (detailsDiv.classList.contains('hidden')) {
+        detailsDiv.classList.remove('hidden');
+    } else {
+        detailsDiv.classList.add('hidden');
+    }
+}
+
 // Funktion zum Generieren des Berichts
 function generateReport(reportTemplateId) {
     console.log("generateReport aufgerufen mit Template-ID:", reportTemplateId);
     
-    // DIREKTER TEST: Zeige den Spinner mit der einfachsten Methode
-    document.getElementById('processing-overlay').style.display = 'flex';
-    document.getElementById('spinner-debug').innerHTML = "Template-ID: " + reportTemplateId + " wird generiert...";
+    // Prüfe ob der Button disabled ist (sollte durch HTML verhindert werden, aber Sicherheitscheck)
+    const button = event.target;
+    if (button.disabled) {
+        console.log("Report generation blocked - button is disabled");
+        return false;
+    }
+    
+    // Deaktiviere den Button sofort
+    button.disabled = true;
+    button.classList.remove('bg-green-500', 'hover:bg-green-600');
+    button.classList.add('bg-gray-400', 'cursor-not-allowed');
+    button.textContent = 'Wird generiert...';
+    
+    // Finde und aktualisiere die Report-Karte sofort mit Badge
+    const reportCard = button.closest('.bg-white.shadow-lg.rounded-lg');
+    if (reportCard) {
+        // Bei neuen Reports: Ersetze "Noch nicht generiert" durch Badge
+        const statusPlaceholder = reportCard.querySelector('.status-placeholder');
+        if (statusPlaceholder) {
+            // Erstelle Badge-Container
+            const badgeDiv = document.createElement('div');
+            badgeDiv.className = 'mt-2';
+            badgeDiv.innerHTML = `
+                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                    <span class="processing-pulse w-2 h-2 bg-yellow-400 rounded-full mr-2"></span>
+                    Report wird generiert...
+                </span>
+            `;
+            statusPlaceholder.replaceWith(badgeDiv);
+        } else {
+            // Bei existierenden Reports: Aktualisiere Badge
+            const existingBadge = reportCard.querySelector('.mt-2');
+            if (existingBadge) {
+                existingBadge.innerHTML = `
+                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                        <span class="processing-pulse w-2 h-2 bg-yellow-400 rounded-full mr-2"></span>
+                        Report wird generiert...
+                    </span>
+                `;
+            }
+        }
+    }
+    
+    // Starte Status-Polling sofort
+    startReportStatusPolling(currentRecordId, reportTemplateId);
     
     fetch(`/generate_report/${currentRecordId}/${reportTemplateId}`, {
         method: 'POST',
@@ -147,27 +477,81 @@ function generateReport(reportTemplateId) {
     })
     .then(response => response.json())
     .then(data => {
-        document.getElementById('spinner-debug').innerHTML += "<br>API-Antwort erhalten: " + JSON.stringify(data);
+        console.log("Report generation API response:", data);
         
-        if (data.task_id) {
-            window.activeTasks.add(data.task_id);
-            socket.emit('join_task_room', {task_id: data.task_id});
+        if (data.error) {
+            console.error("Report generation failed:", data.error);
+            // Bei Fehler Button wieder aktivieren
+            button.disabled = false;
+            button.classList.add('bg-green-500', 'hover:bg-green-600');
+            button.classList.remove('bg-gray-400', 'cursor-not-allowed');
+            button.textContent = 'Generieren';
         }
+        // Das Polling übernimmt die Status-Updates
     })
     .catch(error => {
-        document.getElementById('spinner-debug').innerHTML += "<br>FEHLER: " + error.toString();
+        console.error("Report generation request failed:", error);
+        // Bei Fehler Button wieder aktivieren
+        button.disabled = false;
+        button.classList.add('bg-green-500', 'hover:bg-green-600');
+        button.classList.remove('bg-gray-400', 'cursor-not-allowed');
+        button.textContent = 'Generieren';
     });
     
     return false; // Verhindere weitere Event-Ausbreitung
 }
 
-// Komplett neue regenerateReport-Funktion mit direkter Konsolenausgabe
+// Vereinfachte regenerateReport-Funktion
 function regenerateReport(reportId) {
     console.log("regenerateReport aufgerufen mit ID: " + reportId);
     
-    // DIREKTER TEST: Zeige den Spinner mit der einfachsten Methode
-    document.getElementById('processing-overlay').style.display = 'flex';
-    document.getElementById('spinner-debug').innerHTML = "Report-ID: " + reportId + " wird regeneriert...";
+    // Prüfe ob der Button disabled ist (sollte durch HTML verhindert werden, aber Sicherheitscheck)
+    const button = event.target;
+    if (button.disabled) {
+        console.log("Report regeneration blocked - button is disabled");
+        return false;
+    }
+    
+    // Deaktiviere den Button sofort
+    button.disabled = true;
+    button.classList.remove('bg-yellow-500', 'hover:bg-yellow-600');
+    button.classList.add('bg-gray-400', 'cursor-not-allowed');
+    button.textContent = 'Wird neu generiert...';
+    
+    // Deaktiviere auch den Ansehen-Link
+    const parentDiv = button.closest('.flex.items-center.space-x-2');
+    const viewLink = parentDiv.querySelector('a');
+    if (viewLink) {
+        viewLink.classList.remove('bg-blue-500', 'hover:bg-blue-600');
+        viewLink.classList.add('bg-gray-400', 'cursor-not-allowed');
+        viewLink.setAttribute('href', '#');
+        viewLink.setAttribute('onclick', 'return false;');
+    }
+    
+    // Finde und aktualisiere den Badge sofort
+    const reportCard = button.closest('.bg-white.shadow-lg.rounded-lg');
+    const badgeContainer = reportCard.querySelector('.mt-2');
+    if (badgeContainer) {
+        // Ersetze den aktuellen Badge mit dem "generating" Badge
+        badgeContainer.innerHTML = `
+            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                <span class="processing-pulse w-2 h-2 bg-yellow-400 rounded-full mr-2"></span>
+                Report wird generiert...
+            </span>
+        `;
+    }
+    
+    // Ermittle die template_id aus dem Report
+    fetch(`/get_reports/${currentRecordId}`)
+        .then(response => response.json())
+        .then(data => {
+            const reportData = data.reports.find(r => r.id === reportId);
+            if (reportData && reportData.report_template_id) {
+                // Starte Polling für diesen spezifischen Report
+                startReportStatusPolling(currentRecordId, reportData.report_template_id);
+            }
+        })
+        .catch(error => console.error('Error getting template ID for polling:', error));
     
     fetch(`/regenerate_report/${reportId}`, {
         method: 'POST',
@@ -179,145 +563,43 @@ function regenerateReport(reportId) {
     })
     .then(response => response.json())
     .then(data => {
-        document.getElementById('spinner-debug').innerHTML += "<br>API-Antwort erhalten: " + JSON.stringify(data);
-        
-        if (data.task_id) {
-            window.activeTasks.add(data.task_id);
-            socket.emit('join_task_room', {task_id: data.task_id});
-        }
-        
-        if (data.status === 'succeeded' && 
-            (data.result && data.result.includes('Report') && data.result.includes('generiert'))) {
-            document.getElementById('spinner-debug').innerHTML += "<br>Spezialfall: Report regeneriert erkannt";
-            window.activeTasks.clear();
+        console.log("Report regeneration API response:", data);
+        if (data.error) {
+            // Bei Fehler Buttons wieder aktivieren
+            button.disabled = false;
+            button.classList.add('bg-yellow-500', 'hover:bg-yellow-600');
+            button.classList.remove('bg-gray-400', 'cursor-not-allowed');
+            button.textContent = 'Neu generieren';
             
-            // Spinner mit kurzer Verzögerung ausblenden
-            setTimeout(function() {
-                document.getElementById('processing-overlay').style.display = 'none';
-                loadReports(currentRecordId);
-            }, 1000);
-            return;
+            if (viewLink) {
+                viewLink.classList.add('bg-blue-500', 'hover:bg-blue-600');
+                viewLink.classList.remove('bg-gray-400', 'cursor-not-allowed');
+                viewLink.setAttribute('href', `/report/${reportId}`);
+                viewLink.removeAttribute('onclick');
+            }
         }
+        // Das Polling übernimmt die Status-Updates
     })
     .catch(error => {
-        document.getElementById('spinner-debug').innerHTML += "<br>FEHLER: " + error.toString();
-        // Bei Fehlern den Spinner NICHT ausblenden - wir wollen sehen was passiert
+        console.error("Report regeneration request failed:", error);
+        // Bei Fehler Buttons wieder aktivieren
+        button.disabled = false;
+        button.classList.add('bg-yellow-500', 'hover:bg-yellow-600');
+        button.classList.remove('bg-gray-400', 'cursor-not-allowed');
+        button.textContent = 'Neu generieren';
+        
+        if (viewLink) {
+            viewLink.classList.add('bg-blue-500', 'hover:bg-blue-600');
+            viewLink.classList.remove('bg-gray-400', 'cursor-not-allowed');
+            viewLink.setAttribute('href', `/report/${reportId}`);
+            viewLink.removeAttribute('onclick');
+        }
     });
     
     return false; // Verhindere weitere Event-Ausbreitung
 }
 
-// Testen wir die Socket.io-Initialisierung direkt
-document.addEventListener('DOMContentLoaded', function() {
-    // Teste, ob Socket.io geladen ist
-    if (typeof io !== 'undefined') {
-        try {
-            // Versuche aktiv, eine Verbindung herzustellen
-            window.socket = io('/tasks', {
-                transports: ['websocket', 'polling']  // Versuche beide Verbindungsarten
-            });
-  
-        } catch(e) {
-            alert("Fehler beim Initialisieren des Sockets: " + e.toString());
-        }
-    } else {
-        alert("Socket.io ist NICHT geladen!");
-    }
-});
-
-// Spinner-Funktionen
-function showGlobalSpinner() {
-    const overlay = document.getElementById('processing-overlay');
-    overlay.classList.remove('hidden');
-    overlay.style.display = 'flex';
-    
-    // Stelle sicher, dass der Spinner über allem anderen liegt
-    overlay.style.zIndex = '9999';
-    
-    // Deaktiviere Interaktionen mit dem Rest der Seite
-    document.body.style.pointerEvents = 'none';
-    document.getElementById('processing-overlay').style.pointerEvents = 'auto';
-    
-    // Speichere die Startzeit des Spinners
-    window.spinnerStartTime = new Date().getTime();
-}
-
-function hideGlobalSpinner() {
-    const overlay = document.getElementById('processing-overlay');
-    overlay.classList.add('hidden');
-    
-    // Aktiviere Interaktionen mit der Seite wieder
-    document.body.style.pointerEvents = 'auto';
-}
-
-// Socket.io Event Handler für Task-Status-Updates - komplett korrigiert
-socket.on('task_status', function(data) {
-    console.log('Task status update:', data);
-    
-    try {
-        document.getElementById('spinner-debug').innerHTML += "<br>Task-Status: " + data.status + 
-                                                         (data.task_id ? " (ID: " + data.task_id + ")" : "");
-    } catch(e) {}
-    
-    // Task-ID aus den Daten extrahieren
-    const taskId = data.task_id || '';
-    
-    // FALL 1: Task wird gestartet
-    if (data.status && (data.status.includes('_started') || data.status === 'processing')) {
-        if (taskId) window.activeTasks.add(taskId);
-        document.getElementById('processing-overlay').style.display = 'flex';
-    }
-    // FALL 2: Task ist abgeschlossen
-    else if (data.status && (
-        data.status.includes('_completed') || 
-        data.status === 'error' || 
-        data.status === 'finished' || 
-        data.status === 'done' ||
-        data.status === 'succeeded'  // Wichtig für generate_single_report
-    )) {
-        if (taskId) window.activeTasks.delete(taskId);
-        
-        // SPEZIALFALL 1: Bei create_report_completed oder anderen report-bezogenen Events
-        if (data.status === 'create_report_completed' || 
-            data.status.includes('report') ||
-            (data.result && typeof data.result === 'string' && 
-             (data.result.includes('Report') || data.result.includes('Bericht')))) {
-            
-            console.log('Spezialfall: Report-Aktion abgeschlossen erkannt');
-            window.activeTasks.clear();
-            document.getElementById('processing-overlay').style.display = 'none';
-            loadReports(currentRecordId);  // Korrigierte Funktion!
-            return;
-        }
-        
-        // Normaler Fall: Wenn keine aktiven Tasks mehr, Spinner ausblenden
-        if (window.activeTasks.size === 0) {
-            document.getElementById('processing-overlay').style.display = 'none';
-            loadReports(currentRecordId);  // Korrigierte Funktion!
-        }
-    }
-});
-
-// Zusätzlich: Füge einen direkten Abschluss-Listener hinzu
-socket.on('report_completed', function(data) {
-    document.getElementById('spinner-debug').innerHTML += "<br><strong>Direktes Report-Completed-Event erhalten!</strong>";
-    window.activeTasks.clear();
-    setTimeout(function() {
-        document.getElementById('processing-overlay').style.display = 'none';
-        loadReports(currentRecordId);
-    }, 2000);
-});
-
-// Letzter Notnagel: Maximale Dauer für den Spinner auf 60 Sekunden begrenzen
-setTimeout(function() {
-    const overlay = document.getElementById('processing-overlay');
-    if (overlay && overlay.style.display === 'flex') {
-        document.getElementById('spinner-debug').innerHTML += "<br><strong>Zeitüberschreitung: 60 Sekunden sind verstrichen.</strong> Spinner wird ausgeblendet.";
-        window.activeTasks.clear();
-        document.getElementById('processing-overlay').style.display = 'none';
-        loadReports(currentRecordId);
-    }
-}, 60000); // 60 Sekunden
+// Vereinfachtes System ohne Socket.io und Overlay
 
 // Suchfunktion für die Liste der Datensätze
 document.getElementById('searchInput').addEventListener('input', function() {
@@ -335,5 +617,215 @@ document.getElementById('searchInput').addEventListener('input', function() {
         }
     });
 });
+
+// Page Visibility Change Handler - Reload wenn Tab wieder sichtbar wird
+document.addEventListener('visibilitychange', function() {
+    if (!document.hidden && currentRecordId) {
+        console.log('Tab became visible, refreshing reports...');
+        // Lade Reports neu um aktuelle Stati zu zeigen
+        loadReports(currentRecordId, false);
+    }
+});
+
+// Zeigt Task Logs für Report-bezogene Tasks
+function showReportTaskLogs() {
+    if (!currentRecordId) {
+        alert('Bitte wählen Sie zuerst einen Datensatz aus.');
+        return;
+    }
+    
+    fetch(`/get_task_logs/${currentRecordId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Filtere nur Report-bezogene Tasks
+                const reportTasks = data.task_logs.filter(log => 
+                    log.task_name === 'create_report' || 
+                    log.task_name === 'regenerate_report' ||
+                    log.task_name.includes('report')
+                );
+                
+                const failedReportTasks = reportTasks.filter(log => log.status === 'failed').length;
+                const successfulReportTasks = reportTasks.filter(log => log.status === 'success').length;
+                
+                // Update Modal Title
+                document.getElementById('report-task-logs-modal-title').textContent = `Report-Task Details für Datensatz #${currentRecordId}`;
+                
+                // Update Summary
+                const summaryHtml = `
+                    <div class="grid grid-cols-3 gap-4 text-sm">
+                        <div class="text-center">
+                            <div class="text-2xl font-bold text-green-600">${successfulReportTasks}</div>
+                            <div class="text-gray-600">Erfolgreich</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-2xl font-bold text-red-600">${failedReportTasks}</div>
+                            <div class="text-gray-600">Fehlgeschlagen</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-2xl font-bold text-gray-600">${reportTasks.length}</div>
+                            <div class="text-gray-600">Gesamt</div>
+                        </div>
+                    </div>
+                `;
+                document.getElementById('reportTaskLogsSummary').innerHTML = summaryHtml;
+                
+                // Update Task List
+                let taskListHtml = '';
+                reportTasks.forEach(log => {
+                    const statusClass = log.status === 'success' ? 'bg-green-50 border-green-200' : 
+                                      log.status === 'failed' ? 'bg-red-50 border-red-200' : 
+                                      'bg-gray-50 border-gray-200';
+                    
+                    const statusIcon = log.status === 'success' ? 
+                        '<svg class="w-5 h-5 text-green-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path></svg>' :
+                        log.status === 'failed' ? 
+                        '<svg class="w-5 h-5 text-red-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"></path></svg>' :
+                        '<svg class="w-5 h-5 text-gray-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm-2-5a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" clip-rule="evenodd"></path></svg>';
+                    
+                    const startTime = log.started_at ? new Date(log.started_at).toLocaleString('de-DE') : 'N/A';
+                    const duration = log.duration_seconds ? `${log.duration_seconds.toFixed(2)}s` : 'N/A';
+                    
+                    taskListHtml += `
+                        <div class="border rounded-lg p-3 ${statusClass}">
+                            <div class="flex items-start justify-between">
+                                <div class="flex items-start space-x-2">
+                                    ${statusIcon}
+                                    <div class="flex-grow">
+                                        <div class="font-medium text-gray-900">${log.task_name}</div>
+                                        <div class="text-sm text-gray-600 mt-1">
+                                            Start: ${startTime} | Dauer: ${duration}
+                                            ${log.retry_count > 0 ? ` | Wiederholungen: ${log.retry_count}` : ''}
+                                        </div>
+                                        ${log.error_message ? `
+                                            <div class="mt-2 p-2 bg-red-100 rounded text-sm text-red-700">
+                                                <div class="font-medium">Fehler: ${log.error_type || 'Unbekannt'}</div>
+                                                <div class="mt-1">${log.error_message}</div>
+                                            </div>
+                                        ` : ''}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                document.getElementById('reportTaskLogsList').innerHTML = taskListHtml || '<p class="text-gray-500 text-center py-4">Keine Report-Tasks gefunden</p>';
+                
+                // Show modal
+                document.getElementById('reportTaskLogsModal').classList.remove('hidden');
+            } else {
+                alert('Fehler beim Laden der Task-Logs: ' + (data.error || 'Unbekannter Fehler'));
+            }
+        })
+        .catch(error => {
+            console.error('Error fetching task logs:', error);
+            alert('Fehler beim Laden der Task-Logs');
+        });
+}
+
+function closeReportTaskLogsModal() {
+    document.getElementById('reportTaskLogsModal').classList.add('hidden');
+}
+
+// Zeigt Task Logs für einen spezifischen Report-Typ
+function showReportTaskLogsForSpecificType(reportType) {
+    if (!currentRecordId) {
+        alert('Bitte wählen Sie zuerst einen Datensatz aus.');
+        return;
+    }
+    
+    fetch(`/get_task_logs/${currentRecordId}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Filtere nur Report-bezogene Tasks
+                const reportTasks = data.task_logs.filter(log => 
+                    log.task_name === 'create_report' || 
+                    log.task_name === 'regenerate_report' ||
+                    log.task_name.includes('report')
+                );
+                
+                const failedReportTasks = reportTasks.filter(log => log.status === 'failed').length;
+                const successfulReportTasks = reportTasks.filter(log => log.status === 'success').length;
+                
+                // Update Modal Title mit spezifischem Report-Typ
+                document.getElementById('report-task-logs-modal-title').textContent = `Task-Details für ${reportType} (Datensatz #${currentRecordId})`;
+                
+                // Update Summary
+                const summaryHtml = `
+                    <div class="grid grid-cols-3 gap-4 text-sm">
+                        <div class="text-center">
+                            <div class="text-2xl font-bold text-green-600">${successfulReportTasks}</div>
+                            <div class="text-gray-600">Erfolgreich</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-2xl font-bold text-red-600">${failedReportTasks}</div>
+                            <div class="text-gray-600">Fehlgeschlagen</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-2xl font-bold text-gray-600">${reportTasks.length}</div>
+                            <div class="text-gray-600">Gesamt</div>
+                        </div>
+                    </div>
+                    <div class="mt-2 text-sm text-gray-600 text-center">
+                        Zeige alle Report-Tasks für diesen Datensatz
+                    </div>
+                `;
+                document.getElementById('reportTaskLogsSummary').innerHTML = summaryHtml;
+                
+                // Update Task List
+                let taskListHtml = '';
+                reportTasks.forEach(log => {
+                    const statusClass = log.status === 'success' ? 'bg-green-50 border-green-200' : 
+                                      log.status === 'failed' ? 'bg-red-50 border-red-200' : 
+                                      'bg-gray-50 border-gray-200';
+                    
+                    const statusIcon = log.status === 'success' ? 
+                        '<svg class="w-5 h-5 text-green-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path></svg>' :
+                        log.status === 'failed' ? 
+                        '<svg class="w-5 h-5 text-red-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"></path></svg>' :
+                        '<svg class="w-5 h-5 text-gray-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm-2-5a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" clip-rule="evenodd"></path></svg>';
+                    
+                    const startTime = log.started_at ? new Date(log.started_at).toLocaleString('de-DE') : 'N/A';
+                    const duration = log.duration_seconds ? `${log.duration_seconds.toFixed(2)}s` : 'N/A';
+                    
+                    taskListHtml += `
+                        <div class="border rounded-lg p-3 ${statusClass}">
+                            <div class="flex items-start justify-between">
+                                <div class="flex items-start space-x-2">
+                                    ${statusIcon}
+                                    <div class="flex-grow">
+                                        <div class="font-medium text-gray-900">${log.task_name}</div>
+                                        <div class="text-sm text-gray-600 mt-1">
+                                            Start: ${startTime} | Dauer: ${duration}
+                                            ${log.retry_count > 0 ? ` | Wiederholungen: ${log.retry_count}` : ''}
+                                        </div>
+                                        ${log.error_message ? `
+                                            <div class="mt-2 p-2 bg-red-100 rounded text-sm text-red-700">
+                                                <div class="font-medium">Fehler: ${log.error_type || 'Unbekannt'}</div>
+                                                <div class="mt-1">${log.error_message}</div>
+                                            </div>
+                                        ` : ''}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                document.getElementById('reportTaskLogsList').innerHTML = taskListHtml || '<p class="text-gray-500 text-center py-4">Keine Report-Tasks gefunden</p>';
+                
+                // Show modal
+                document.getElementById('reportTaskLogsModal').classList.remove('hidden');
+            } else {
+                alert('Fehler beim Laden der Task-Logs: ' + (data.error || 'Unbekannter Fehler'));
+            }
+        })
+        .catch(error => {
+            console.error('Error fetching task logs:', error);
+            alert('Fehler beim Laden der Task-Logs');
+        });
+}
 </script>
 {% endblock %}

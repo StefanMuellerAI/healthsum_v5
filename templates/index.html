@@ -38,22 +38,45 @@
                                 <p class="text-sm text-gray-500">
                                     Berichte: {{ 'Ja' if record.create_reports else 'Nein' }}
                                 </p>
+                                <!-- Processing Indicator -->
+                                <div class="processing-indicator hidden mt-2">
+                                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                                        <span class="processing-pulse w-2 h-2 bg-yellow-400 rounded-full mr-2"></span>
+                                        Wird verarbeitet...
+                                    </span>
+                                </div>
+                                
+                                <!-- Completed Indicator -->
+                                <div class="completed-indicator hidden mt-2">
+                                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                        <span class="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
+                                        Vollständig verarbeitet
+                                    </span>
+                                </div>
+                                
+                                <!-- Failed Indicator -->
+                                <div class="failed-indicator hidden mt-2">
+                                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                                        <span class="w-2 h-2 bg-red-500 rounded-full mr-2"></span>
+                                        Verarbeitung fehlgeschlagen
+                                    </span>
+                                </div>
                                
                                 
                             </div>
                         </div>
                         <div class="flex space-x-3">
-                            <button onclick="addDocuments('{{ record.id }}')" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg transition duration-300" aria-label="Dokumente hinzufügen">
+                            <button data-action="add" data-id="{{ record.id }}" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg transition duration-300" aria-label="Dokumente hinzufügen">
                                 <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                                 </svg>
                             </button>
-                            <button onclick="openModal('{{ record.id }}')" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg transition duration-300" aria-label="Details anzeigen">
+                            <button data-action="open" data-id="{{ record.id }}" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg transition duration-300" aria-label="Details anzeigen">
                                 <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                                 </svg>
                             </button>
-                            <button onclick="deleteRecord('{{ record.id }}')" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg transition duration-300" aria-label="Datensatz löschen">
+                            <button data-action="delete" data-id="{{ record.id }}" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg transition duration-300" aria-label="Datensatz löschen">
                                 <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                                 </svg>
@@ -138,16 +161,46 @@
                         Hochladen & Verarbeiten
                     </button>
                 </form>
-                <div id="processing-overlay" class="hidden fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center">
-                    <div class="bg-white p-6 rounded-lg shadow-xl max-w-md text-center">
-                        <svg class="mx-auto h-12 w-12 text-blue-500 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                        <h3 class="mt-4 text-lg font-semibold text-gray-900">Verarbeitung läuft</h3>
-                        <p class="mt-2 text-gray-600">Bitte warten Sie, während die Daten verarbeitet werden. Sie können dieses Fenster schließen - die Verarbeitung läuft im Hintergrund weiter.</p>
+                <!-- Hinweis: Processing-Overlay wurde entfernt, Badge-Status und Button-Spinner bleiben erhalten. -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Task Logs Modal -->
+<div id="taskLogsModal" class="fixed z-10 inset-0 overflow-y-auto hidden" aria-labelledby="task-logs-modal-title" role="dialog" aria-modal="true">
+    <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+        <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" aria-hidden="true"></div>
+        <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+        <div class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-3xl sm:w-full">
+            <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                <div class="sm:flex sm:items-start">
+                    <div class="w-full">
+                        <h3 class="text-lg leading-6 font-medium text-gray-900 mb-4" id="task-logs-modal-title">
+                            Task-Details
+                        </h3>
+                        
+                        <!-- Task Summary -->
+                        <div id="taskLogsSummary" class="mb-4 p-3 bg-gray-50 rounded-lg">
+                            <!-- Summary will be inserted here -->
+                        </div>
+                        
+                        <!-- Task List -->
+                        <div class="mt-4">
+                            <h4 class="text-md font-medium text-gray-700 mb-2">Alle Tasks</h4>
+                            <div id="taskLogsList" class="max-h-96 overflow-y-auto space-y-2">
+                                <!-- Task logs will be inserted here -->
+                            </div>
+                        </div>
                     </div>
                 </div>
+            </div>
+            <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                <button type="button" 
+                        class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm" 
+                        onclick="closeTaskLogsModal()">
+                    Schließen
+                </button>
             </div>
         </div>
     </div>
@@ -258,7 +311,37 @@
 
 
 
+<style>
+    /* CSS für pulsierende Animationen */
+    .processing-pulse {
+        animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+    
+    @keyframes pulse {
+        0%, 100% {
+            opacity: 1;
+        }
+        50% {
+            opacity: 0.5;
+        }
+    }
+    
+    /* Overlay-spezifische Klassen entfernt */
+</style>
+
 <script>
+// Utility: Debounce to limit rapid calls (e.g., search)
+function debounce(fn, delay = 250) {
+    let timerId;
+    return (...args) => {
+        clearTimeout(timerId);
+        timerId = setTimeout(() => fn(...args), delay);
+    };
+}
+
+// AbortController for datasets refresh to cancel overlapping requests
+let datasetsAbortController = null;
+
 document.addEventListener('DOMContentLoaded', function() {
     const mainForm = document.getElementById('uploadForm');
     const modalForm = document.getElementById('modalUploadForm');
@@ -267,18 +350,15 @@ document.addEventListener('DOMContentLoaded', function() {
     const mainFileList = document.getElementById('fileList');
     const modalFileList = document.getElementById('modalFileList');
     const searchInput = document.getElementById('searchInput');
+    const datasetList = document.getElementById('datasetList');
 
-    const progressContainer = document.getElementById('progress-container');
-    const progressBar = document.getElementById('progress-bar');
-    const progressText = document.getElementById('progress-text');
     const uploadButton = document.getElementById('uploadButton');
     const uploadSpinner = document.getElementById('uploadSpinner');
-    const socket = io('/tasks', {
-        transports: ['websocket']
-    });
 
-    // Aktive Tasks verfolgen
+    // Aktive Tasks und Progress verfolgen
     window.activeTasks = new Set();
+    window.currentProcessingRecord = null;
+    window.taskProgressInterval = null;
 
     mainFileInput.addEventListener('change', function() {
         updateFileList(this, mainFileList);
@@ -286,7 +366,20 @@ document.addEventListener('DOMContentLoaded', function() {
     modalFileInput.addEventListener('change', function() {
         updateFileList(this, modalFileList);
     });
-    searchInput.addEventListener('input', filterDatasets);
+    searchInput.addEventListener('input', debounce(filterDatasets, 250));
+
+    // Event delegation for dataset actions (guard against null)
+    if (datasetList) {
+        datasetList.addEventListener('click', (event) => {
+            const button = event.target.closest('button[data-action]');
+            if (!button) return;
+            const action = button.getAttribute('data-action');
+            const id = button.getAttribute('data-id');
+            if (action === 'add') addDocuments(id);
+            else if (action === 'open') openModal(id);
+            else if (action === 'delete') deleteRecord(id);
+        });
+    }
 
     mainForm.addEventListener('submit', submitForm);
     modalForm.addEventListener('submit', submitForm);
@@ -308,7 +401,7 @@ document.addEventListener('DOMContentLoaded', function() {
             uploadSpinner.classList.remove('hidden');
         }
 
-        // Zeige den Spinner sofort an
+        // Zeige den Spinner sofort an (ohne recordId da noch nicht bekannt)
         showGlobalSpinner();
 
         fetch('/upload', {
@@ -317,13 +410,22 @@ document.addEventListener('DOMContentLoaded', function() {
         })
         .then(response => response.json())
         .then(data => {
-            if (data.task_id) {
-                // Füge die Task-ID zur Liste der aktiven Tasks hinzu
-                window.activeTasks.add(data.task_id);
-                socket.emit('join_task_room', {task_id: data.task_id});
-                // Spinner bleibt sichtbar
+            console.log('Upload response:', data);
+            
+            if (data.record_id) {
+                console.log('Upload successful, record_id:', data.record_id);
+                
+                // Lade die Datensätze neu, damit der neue sofort sichtbar ist
+                refreshDatasetList();
+                
+                // Starte das einfache Polling für diesen Datensatz
+                startSimpleProcessingPolling(data.record_id);
+                
+                // Schließe Upload-UI sofort
+                resetUploadUI();
+                hideGlobalSpinner();
             } else {
-                alert('Fehler beim Hochladen: ' + data.error);
+                alert('Fehler beim Hochladen: ' + (data.error || 'Unbekannter Fehler'));
                 resetUploadUI();
                 hideGlobalSpinner();
             }
@@ -355,10 +457,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    function updateProgress(percent) {
-        progressBar.style.width = percent + '%';
-        progressText.textContent = percent + '%';
-    }
+    // Progress-Overlay entfernt: keine updateProgress-Funktion mehr nötig
 
     function updateFileList(input, fileListElement) {
         fileListElement.innerHTML = '';
@@ -402,84 +501,148 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    socket.on('task_status', function(data) {
-        
-        // Task-ID aus den Daten extrahieren
-        const taskId = data.task_id || '';
-        
-        // Wenn ein Task gestartet wird, füge ihn zur Liste hinzu
-        if (data.status.includes('_started') || data.status === 'processing') {
-            if (taskId) window.activeTasks.add(taskId);
-            showGlobalSpinner();
-        }
-        // Wenn ein Task beendet wird, entferne ihn aus der Liste
-        else if (data.status.includes('_completed') || 
-                  data.status === 'error' || 
-                  data.status === 'finished' || 
-                  data.status === 'done') {
-            
-            if (taskId) window.activeTasks.delete(taskId);
-            
-            
-            // SPEZIALFALL: Bei create_report_completed immer aufräumen
-            if (data.status === 'create_report_completed') {
-                window.activeTasks.clear();
-                hideGlobalSpinner();
-                refreshDatasetList();
-                return;
-            }
-            
-            // Wenn keine aktiven Tasks mehr vorhanden sind, verstecke den Spinner
-            if (window.activeTasks.size === 0) {
-                hideGlobalSpinner();
-                
-                if (data.status === 'error') {
-                    alert('Fehler: ' + data.message);
-                    window.location.reload();
-                }
-                else {
-                    // Aktualisiere die Ansicht nach erfolgreicher Verarbeitung
-                    refreshDatasetList();
-                    resetFormAfterProcessing();
-                }
-            } else {
-            }
-        }
-    });
-
-    // Sicherheits-Timeout: Falls der Spinner nach 5 Minuten noch angezeigt wird, verstecke ihn
-    setInterval(() => {
-        const overlay = document.getElementById('processing-overlay');
-        if (!overlay.classList.contains('hidden')) {
-            const spinnerStartTime = window.spinnerStartTime || 0;
-            const currentTime = new Date().getTime();
-            
-            // Wenn der Spinner länger als 5 Minuten angezeigt wird, verstecke ihn
-            if (currentTime - spinnerStartTime > 5 * 60 * 1000) {
-                window.activeTasks.clear();
-                hideGlobalSpinner();
-                refreshDatasetList();
-            }
-        }
-    }, 30000); // Prüfe alle 30 Sekunden
+    // Prüfe auf Page Load, ob es laufende Tasks gibt  
+    checkForRunningTasks();
+    
+    // Aktualisiere die Datensatzliste beim Laden, um die korrekten Badges anzuzeigen
+    refreshDatasetList();
 });
+
+function checkForRunningTasks() {
+    // Prüfe alle sichtbaren Records basierend auf dem bereits geladenen DB-Status
+    // Das Badge wird bereits durch getStatusBadgeHtml() korrekt angezeigt
+    
+    const recordElements = document.querySelectorAll('li[data-id]');
+    console.log(`Checking status for ${recordElements.length} records`);
+    
+    // Hole die aktuellen Daten direkt aus der Datenbank
+    fetch('/get_datasets')
+        .then(response => response.json())
+        .then(datasets => {
+            datasets.forEach(record => {
+                if (record.processing_status === 'processing') {
+                    console.log(`Starting polling for processing record ${record.id}`);
+                    // Starte nur Polling für Records die tatsächlich processing sind
+                    startSimpleProcessingPolling(record.id);
+                }
+                // Keine Badge-Manipulation hier - das wird durch getStatusBadgeHtml() gehandelt
+            });
+        })
+        .catch(error => {
+            console.error('Error checking dataset status:', error);
+        });
+}
+
+// Status-Badge-HTML generieren basierend auf DB-Status
+function getStatusBadgeHtml(record) {
+    // Sichere Defaults für migrierte Records
+    const processingStatus = record.processing_status || 'completed';
+    const hasFailedTasks = record.has_failed_tasks || false;
+    
+    console.log('getStatusBadgeHtml called for record:', record.id, 'status:', processingStatus);
+    let badgeHtml = '';
+    
+    switch(processingStatus) {
+        case 'processing':
+            badgeHtml = `
+                <div class="mt-2 flex items-center gap-2">
+                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                        <span class="processing-pulse w-2 h-2 bg-yellow-400 rounded-full mr-2"></span>
+                        Wird verarbeitet...
+                    </span>`;
+            break;
+        case 'completed':
+            badgeHtml = `
+                <div class="mt-2 flex items-center gap-2">
+                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                        <span class="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
+                        Vollständig verarbeitet
+                    </span>`;
+            break;
+        case 'failed':
+            const errorMessage = record.processing_error_message ? ` (${record.processing_error_message.substring(0, 50)}...)` : '';
+            badgeHtml = `
+                <div class="mt-2 flex items-center gap-2">
+                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                        <span class="w-2 h-2 bg-red-500 rounded-full mr-2"></span>
+                        Verarbeitung fehlgeschlagen${errorMessage}
+                    </span>`;
+            break;
+        case 'pending':
+        default:
+            return ''; // Kein Badge für pending
+    }
+    
+    // Füge Task-Fehler-Indikator hinzu wenn Fehler vorhanden ODER wenn der Record selbst failed ist
+    if (hasFailedTasks || processingStatus === 'failed') {
+        badgeHtml += `
+            <button onclick="showTaskLogs(${record.id})" 
+                    class="inline-flex items-center justify-center w-6 h-6 bg-red-500 hover:bg-red-600 text-white rounded-full transition-colors duration-200"
+                    title="${processingStatus === 'failed' ? 'Details zum Fehler anzeigen' : 'Fehlerhafte Tasks anzeigen'}">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+            </button>`;
+    }
+    
+    badgeHtml += '</div>';
+    return badgeHtml;
+}
+
+// Einfaches Polling nur für processing Records
+function startSimpleProcessingPolling(recordId) {
+    console.log(`Starting simple polling for record ${recordId}`);
+    
+    const pollInterval = setInterval(() => {
+        if (document.hidden) return; // spare Requests, wenn Tab nicht sichtbar
+        
+        fetch(`/get_datasets`)
+            .then(response => response.json())
+            .then(data => {
+                const record = data.find(r => r.id == recordId);
+                if (record && record.processing_status !== 'processing') {
+                    console.log(`Record ${recordId} status changed to: ${record.processing_status}`);
+                    clearInterval(pollInterval);
+                    // Aktualisiere die komplette Liste
+                    refreshDatasetList();
+                }
+            })
+            .catch(error => {
+                console.error('Error in simple polling:', error);
+                clearInterval(pollInterval);
+            });
+    }, 5000); // Alle 5 Sekunden prüfen
+    
+    // Auto-stop nach 10 Minuten
+    setTimeout(() => {
+        clearInterval(pollInterval);
+    }, 600000);
+}
 
 // Globale Funktionen
 function refreshDatasetList() {
-    fetch('/get_datasets')
+    if (datasetsAbortController) {
+        datasetsAbortController.abort();
+    }
+    datasetsAbortController = new AbortController();
+
+    fetch('/get_datasets', { signal: datasetsAbortController.signal })
     .then(response => response.json())
     .then(data => {
         updateDatasetList(data);
     })
-    .catch(error => console.error('Fehler beim Aktualisieren der Datensatzliste.'));
+        .catch(error => {
+            if (error.name !== 'AbortError') {
+                console.error('Fehler beim Aktualisieren der Datensatzliste.');
+            }
+        });
 }
 
 function updateDatasetList(data) {
     const datasetList = document.getElementById('datasetList');
-    datasetList.innerHTML = '';
-    data.forEach(record => {
+    const fragment = document.createDocumentFragment();
 
-        
+    data.forEach(record => {
         const li = document.createElement('li');
         li.className = 'bg-white shadow-lg overflow-hidden rounded-lg';
         li.dataset.id = record.id;
@@ -488,7 +651,6 @@ function updateDatasetList(data) {
             year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
         });
 
-        // Hole das existierende Geburtsdatum aus dem DOM, falls vorhanden
         const existingRecord = document.querySelector(`li[data-id="${record.id}"]`);
         const existingBirthDate = existingRecord ? 
             existingRecord.querySelector('.birth-date').textContent.replace('Geburtsdatum: ', '') : 
@@ -519,20 +681,21 @@ function updateDatasetList(data) {
                         <p class="text-sm text-gray-500 birth-date">Geburtsdatum: ${birthdateTimestamp}</p>
                         <p class="text-sm text-gray-500">${formattedTimestamp}</p>
                         <p class="text-sm text-gray-500">Berichte: ${record.create_reports ? 'Ja' : 'Nein'}</p>
+                        ${getStatusBadgeHtml(record)}
                     </div>
                 </div>
                 <div class="flex space-x-3">
-                    <button onclick="addDocuments('${record.id}')" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg transition duration-300" aria-label="Dokumente hinzufügen">
+                    <button data-action="add" data-id="${record.id}" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg transition duration-300" aria-label="Dokumente hinzufügen">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                         </svg>
                     </button>
-                    <button onclick="openModal('${record.id}')" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg transition duration-300" aria-label="Details anzeigen">
+                    <button data-action="open" data-id="${record.id}" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg transition duration-300" aria-label="Details anzeigen">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
                     </button>
-                    <button onclick="deleteRecord('${record.id}')" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg transition duration-300" aria-label="Datensatz löschen">
+                    <button data-action="delete" data-id="${record.id}" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg transition duration-300" aria-label="Datensatz löschen">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                         </svg>
@@ -541,8 +704,13 @@ function updateDatasetList(data) {
             </div>
         `;
         
-        datasetList.appendChild(li);
+        fragment.appendChild(li);
     });
+
+    datasetList.replaceChildren(fragment);
+
+    // Nach dem Update der Liste, prüfe auf laufende Tasks
+    setTimeout(checkForRunningTasks, 500);
 }
 
 function toggleCustomInstructions() {
@@ -553,31 +721,200 @@ function toggleCustomInstructions() {
     arrow.classList.toggle('rotate-180');
 }
 
-function showGlobalSpinner() {
-    // Schließe zuerst alle modalen Dialoge
+function showGlobalSpinner(recordId = null) {
+    // Vereinfacht: Schließe nur die Modals, zeige aber kein Overlay mehr
     closeModal();          // Schließt das Info-Modal
     closeUploadModal();    // Schließt das Upload-Modal
     
-    const overlay = document.getElementById('processing-overlay');
-    overlay.classList.remove('hidden');
+    // Zeige nur Upload-Spinner falls vorhanden
+    const uploadSpinner = document.getElementById('uploadSpinner');
+    if (uploadSpinner) {
+        uploadSpinner.classList.remove('hidden');
+    }
     
-    // Stelle sicher, dass der Spinner über allem anderen liegt
-    overlay.style.zIndex = '9999';
-    
-    // Deaktiviere Interaktionen mit dem Rest der Seite
-    document.body.style.pointerEvents = 'none';
-    document.getElementById('processing-overlay').style.pointerEvents = 'auto';
-    
-    // Speichere die Startzeit des Spinners
-    window.spinnerStartTime = new Date().getTime();
+    console.log('showGlobalSpinner called (simplified) - recordId:', recordId);
 }
 
-function hideGlobalSpinner() {
-    const overlay = document.getElementById('processing-overlay');
-    overlay.classList.add('hidden');
+function initializeTaskProgress() {
+    // Reset Progress Display
+    document.getElementById('progress-counter').textContent = '0 / 0 Schritte';
+    document.getElementById('overall-progress-bar').style.width = '0%';
+    document.getElementById('current-task-display').innerHTML = '<p class="text-sm text-gray-600">Starte Verarbeitung...</p>';
+    document.getElementById('task-list').innerHTML = '<p class="text-sm text-gray-500 text-center py-4">Tasks werden vorbereitet...</p>';
+    document.getElementById('error-display').classList.add('hidden');
+    document.getElementById('close-processing-btn').classList.add('hidden');
+}
+
+// Entfernt - verwende nur noch das einfache Polling basierend auf DB-Status
+
+function updateTaskProgress() {
+    if (!window.currentProcessingRecord) {
+        console.log('No currentProcessingRecord set, skipping update');
+        return;
+    }
     
-    // Aktiviere Interaktionen mit der Seite wieder
-    document.body.style.pointerEvents = 'auto';
+    console.log('Fetching processing status for record:', window.currentProcessingRecord);
+    
+    fetch(`/get_processing_status/${window.currentProcessingRecord}`)
+        .then(response => response.json())
+        .then(data => {
+            console.log('Processing status response:', data);
+            
+            if (data.error) {
+                console.error('Error getting processing status:', data.error);
+                return;
+            }
+            
+            updateProgressDisplay(data);
+            
+            // Wenn keine Tasks mehr laufen, stoppe das Polling
+            if (data.status === 'idle' && data.running_tasks === 0) {
+                console.log('All tasks completed, stopping polling in 2 seconds...');
+                setTimeout(() => {
+                    stopTaskProgressPolling();
+                    hideGlobalSpinner();
+                    hideProcessingIndicator(window.currentProcessingRecord);
+                    refreshDatasetList();
+                    resetFormAfterProcessing();
+                    window.currentProcessingRecord = null;
+                    console.log('Processing completed and UI updated');
+                }, 2000); // 2 Sekunden Verzögerung für finale Updates
+            }
+        })
+        .catch(error => {
+            console.error('Error updating task progress:', error);
+        });
+}
+
+function updateProgressDisplay(data) {
+    const progressCounter = document.getElementById('progress-counter');
+    const progressBar = document.getElementById('overall-progress-bar');
+    const currentTaskDisplay = document.getElementById('current-task-display');
+    const taskList = document.getElementById('task-list');
+    
+    // Update Progress Counter und Bar
+    const completedTasks = data.completed_tasks || 0;
+    const totalTasks = data.total_tasks || 0;
+    const runningTasks = data.running_tasks || 0;
+    const failedTasks = data.failed_tasks || 0;
+    const progress = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0;
+    
+    let progressText = `${completedTasks} / ${totalTasks} Schritte abgeschlossen`;
+    if (runningTasks > 0) {
+        progressText += ` • ${runningTasks} laufen`;
+    }
+    if (failedTasks > 0) {
+        progressText += ` • ${failedTasks} fehlgeschlagen`;
+    }
+    
+    progressCounter.textContent = progressText;
+    progressBar.style.width = `${progress}%`;
+    
+    // Ändere Farbe basierend auf Status
+    if (failedTasks > 0) {
+        progressBar.className = 'bg-red-500 h-2 rounded-full transition-all duration-300';
+    } else if (runningTasks > 0) {
+        progressBar.className = 'bg-blue-600 h-2 rounded-full transition-all duration-300';
+    } else {
+        progressBar.className = 'bg-green-500 h-2 rounded-full transition-all duration-300';
+    }
+    
+    // Update Current Task Display
+    if (data.current_task_display) {
+        currentTaskDisplay.innerHTML = `<p class="text-sm text-gray-600">Aktuell: ${data.current_task_display}</p>`;
+    }
+    
+    // Update Task List
+    taskList.innerHTML = '';
+    if (data.task_progress && data.task_progress.length > 0) {
+        data.task_progress.forEach(task => {
+            const taskElement = document.createElement('div');
+            taskElement.className = `task-item border rounded p-3 ${task.status} mb-2`;
+            
+            // Formatiere die Zeit
+            let timeInfo = '';
+            if (task.started_at) {
+                const startTime = new Date(task.started_at);
+                const timeStr = startTime.toLocaleTimeString('de-DE', { 
+                    hour: '2-digit', 
+                    minute: '2-digit',
+                    second: '2-digit'
+                });
+                timeInfo = `Started: ${timeStr}`;
+                
+                if (task.duration) {
+                    timeInfo += ` (${task.duration}s)`;
+                }
+            }
+            
+            // Retry Info
+            let retryInfo = task.retry_count > 0 ? ` (${task.retry_count} Wiederholung${task.retry_count > 1 ? 'en' : ''})` : '';
+            
+            taskElement.innerHTML = `
+                <div class="flex items-start justify-between">
+                    <div class="flex items-start flex-grow">
+                        <span class="task-icon ${task.status} mt-1"></span>
+                        <div class="ml-2 flex-grow">
+                            <div class="text-sm font-medium">${task.display_name}${retryInfo}</div>
+                            ${timeInfo ? `<div class="text-xs text-gray-500 mt-1">${timeInfo}</div>` : ''}
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <span class="text-xs px-2 py-1 rounded-full ${getStatusClass(task.status)}">${getStatusText(task.status)}</span>
+                    </div>
+                </div>
+            `;
+            taskList.appendChild(taskElement);
+        });
+    } else {
+        taskList.innerHTML = '<p class="text-sm text-gray-500 text-center py-4">Noch keine Tasks gestartet...</p>';
+    }
+    
+    // Zeige Fehler falls vorhanden
+    if (data.failed_tasks > 0) {
+        const errorDisplay = document.getElementById('error-display');
+        const errorMessage = document.getElementById('error-message');
+        errorDisplay.classList.remove('hidden');
+        errorMessage.textContent = `${data.failed_tasks} von ${totalTasks} Schritten fehlgeschlagen`;
+        
+        // Zeige Close Button bei Fehlern
+        document.getElementById('close-processing-btn').classList.remove('hidden');
+    }
+}
+
+function getStatusText(status) {
+    const statusTexts = {
+        'completed': 'Abgeschlossen',
+        'running': 'Läuft...',
+        'failed': 'Fehlgeschlagen',
+        'pending': 'Wartet...'
+    };
+    return statusTexts[status] || status;
+}
+
+function getStatusClass(status) {
+    const statusClasses = {
+        'completed': 'bg-green-100 text-green-800',
+        'running': 'bg-yellow-100 text-yellow-800',
+        'failed': 'bg-red-100 text-red-800',
+        'pending': 'bg-gray-100 text-gray-800'
+    };
+    return statusClasses[status] || 'bg-gray-100 text-gray-800';
+}
+
+function stopTaskProgressPolling() {
+    if (window.taskProgressInterval) {
+        clearInterval(window.taskProgressInterval);
+        window.taskProgressInterval = null;
+    }
+}
+
+// Badge-Funktionen entfernt - Badge wird direkt durch getStatusBadgeHtml() aus DB-Status generiert
+
+function hideGlobalSpinner() {
+    // Processing-Overlay ist jetzt permanent versteckt
+    // Keine zusätzlichen Aktionen mehr nötig
+    console.log('hideGlobalSpinner called - no overlay to hide');
 }
 
 function saveChanges() {
@@ -608,13 +945,12 @@ function saveChanges() {
     .then(response => response.json())
     .then(data => {
         if (data.task_id) {
-            // Wenn ein Task gestartet wurde (für PDF-Verarbeitung), verbinde mit Socket
-            const socket = io('/tasks', { transports: ['websocket'] });
-            
+            // Wenn ein Task gestartet wurde (für PDF-Verarbeitung)
             // Füge die Task-ID zur Liste der aktiven Tasks hinzu
             window.activeTasks.add(data.task_id);
             
-            socket.emit('join_task_room', {task_id: data.task_id});
+            // Starte Polling für diesen Task
+            startSimpleProcessingPolling(data.record_id || recordId);
             
             // Wichtig: Spinner bleibt sichtbar, wird nicht versteckt
         } else {
@@ -656,6 +992,7 @@ function openModal(recordId) {
             <p><strong>Letzte Aktualisierung:</strong> ${formattedTimestamp}</p>
             <p><strong>Zeitraum:</strong> ${data.medical_history_begin && data.medical_history_end ? `${data.medical_history_begin} - ${data.medical_history_end}` : 'Nicht angegeben'}</p>
             <p><strong>Berichte:</strong> ${data.create_reports ? 'Ja' : 'Nein'}</p>
+            <p><strong>Token Count:</strong> ${data.token_count ? data.token_count.toLocaleString('de-DE') : '0'}</p>
             <div class="mt-4">
                 <p><strong>Custom Instructions:</strong></p>
                 <div class="mt-2 p-3 bg-gray-50 rounded-lg text-sm">
@@ -774,6 +1111,119 @@ function removeFile(recordId, filename) {
             alert('Fehler beim Löschen der Datei');
         });
     }
+}
+
+function showTaskLogs(recordId) {
+    // Hole zuerst die aktuellen Datensatz-Infos
+    fetch('/get_datasets')
+        .then(response => response.json())
+        .then(datasets => {
+            const currentRecord = datasets.find(r => r.id == recordId);
+            const recordFailed = currentRecord && currentRecord.processing_status === 'failed';
+            
+            // Dann hole die Task-Logs
+            return fetch(`/get_task_logs/${recordId}`)
+                .then(response => response.json())
+                .then(data => ({ taskLogsData: data, recordFailed, recordError: currentRecord?.processing_error_message }));
+        })
+        .then(({ taskLogsData: data, recordFailed, recordError }) => {
+            if (data.success) {
+                // Update Modal Title
+                document.getElementById('task-logs-modal-title').textContent = `Task-Details für Datensatz #${recordId}`;
+                
+                // Update Summary mit zusätzlicher Warnung wenn Record failed
+                let summaryHtml = '';
+                
+                if (recordFailed) {
+                    summaryHtml += `
+                        <div class="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                            <div class="flex items-start">
+                                <svg class="w-5 h-5 text-red-500 mr-2 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"></path>
+                                </svg>
+                                <div>
+                                    <div class="font-medium text-red-800">Datensatz-Verarbeitung fehlgeschlagen</div>
+                                    ${recordError ? `<div class="text-sm text-red-700 mt-1">${recordError}</div>` : ''}
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                summaryHtml += `
+                    <div class="grid grid-cols-3 gap-4 text-sm">
+                        <div class="text-center">
+                            <div class="text-2xl font-bold text-green-600">${data.successful_tasks}</div>
+                            <div class="text-gray-600">Erfolgreich</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-2xl font-bold text-red-600">${data.failed_tasks}</div>
+                            <div class="text-gray-600">Fehlgeschlagen</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-2xl font-bold text-gray-600">${data.total_tasks}</div>
+                            <div class="text-gray-600">Gesamt</div>
+                        </div>
+                    </div>
+                `;
+                document.getElementById('taskLogsSummary').innerHTML = summaryHtml;
+                
+                // Update Task List
+                let taskListHtml = '';
+                data.task_logs.forEach(log => {
+                    const statusClass = log.status === 'success' ? 'bg-green-50 border-green-200' : 
+                                      log.status === 'failed' ? 'bg-red-50 border-red-200' : 
+                                      'bg-gray-50 border-gray-200';
+                    
+                    const statusIcon = log.status === 'success' ? 
+                        '<svg class="w-5 h-5 text-green-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path></svg>' :
+                        log.status === 'failed' ? 
+                        '<svg class="w-5 h-5 text-red-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"></path></svg>' :
+                        '<svg class="w-5 h-5 text-gray-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm-2-5a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" clip-rule="evenodd"></path></svg>';
+                    
+                    const startTime = log.started_at ? new Date(log.started_at).toLocaleString('de-DE') : 'N/A';
+                    const duration = log.duration_seconds ? `${log.duration_seconds.toFixed(2)}s` : 'N/A';
+                    
+                    taskListHtml += `
+                        <div class="border rounded-lg p-3 ${statusClass}">
+                            <div class="flex items-start justify-between">
+                                <div class="flex items-start space-x-2">
+                                    ${statusIcon}
+                                    <div class="flex-grow">
+                                        <div class="font-medium text-gray-900">${log.task_name}</div>
+                                        <div class="text-sm text-gray-600 mt-1">
+                                            Start: ${startTime} | Dauer: ${duration}
+                                            ${log.retry_count > 0 ? ` | Wiederholungen: ${log.retry_count}` : ''}
+                                        </div>
+                                        ${log.error_message ? `
+                                            <div class="mt-2 p-2 bg-red-100 rounded text-sm text-red-700">
+                                                <div class="font-medium">Fehler: ${log.error_type || 'Unbekannt'}</div>
+                                                <div class="mt-1">${log.error_message}</div>
+                                            </div>
+                                        ` : ''}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                document.getElementById('taskLogsList').innerHTML = taskListHtml || '<p class="text-gray-500 text-center py-4">Keine Tasks gefunden</p>';
+                
+                // Show modal
+                document.getElementById('taskLogsModal').classList.remove('hidden');
+            } else {
+                alert('Fehler beim Laden der Task-Logs: ' + (data.error || 'Unbekannter Fehler'));
+            }
+        })
+        .catch(error => {
+            console.error('Error fetching task logs:', error);
+            alert('Fehler beim Laden der Task-Logs');
+        });
+}
+
+function closeTaskLogsModal() {
+    document.getElementById('taskLogsModal').classList.add('hidden');
 }
 
 </script>

@@ -1,0 +1,51 @@
+[1;36m 
+ -------------- celery@Mac-Studio-von-Stefan.fritz.box v5.4.0 (opalescent)
+--- ***** ----- 
+-- ******* ---- macOS-15.5-arm64-arm-64bit 2025-08-08 10:16:49
+- *** --- * --- 
+- ** ---------- [config]
+- ** ---------- .> app:         app:0x11f65d070
+- ** ---------- .> transport:   redis://localhost:6380/0
+- ** ---------- .> results:     redis://localhost:6380/0
+- *** --- * --- .> concurrency: 500 (eventlet)
+-- ******* ---- .> task events: OFF (enable -E to monitor tasks in this worker)
+--- ***** ----- 
+ -------------- [queues]
+                .> default          exchange=celery(direct) key=default
+                .> extraction       exchange=celery(direct) key=extraction
+                .> icd_descriptions exchange=celery(direct) key=icd_descriptions
+                .> medical_codes    exchange=celery(direct) key=medical_codes
+                .> notification     exchange=celery(direct) key=notification
+                .> pdf_processing   exchange=celery(direct) key=pdf_processing
+                .> refinement       exchange=celery(direct) key=refinement
+                .> regenerate_report exchange=celery(direct) key=regenerate_report
+                .> summary          exchange=celery(direct) key=summary
+[0m[0m
+[tasks]
+  . tasks.aggregate_extraction_results
+  . tasks.combine_extractions
+  . tasks.convert_pdf_to_images
+  . tasks.create_report
+  . tasks.distribute_extraction_tasks
+  . tasks.extract_azure_vision
+  . tasks.extract_azure_vision_optimized
+  . tasks.extract_gemini_vision_optimized
+  . tasks.extract_gpt4_vision
+  . tasks.extract_gpt4_vision_optimized
+  . tasks.extract_medical_codes
+  . tasks.extract_ocr
+  . tasks.extract_ocr_optimized
+  . tasks.extract_pdf_text
+  . tasks.generate_single_report
+  . tasks.log_task_chain_error
+  . tasks.process_pdfs
+  . tasks.process_record
+  . tasks.regenerate_report_task
+  . tasks.save_medical_codes
+  . tasks.send_notifications_task
+  . tasks.update_medical_codes_descriptions
+[0m
+
+worker: Hitting Ctrl+C again will terminate all running tasks!
+
+worker: Warm shutdown (MainProcess)

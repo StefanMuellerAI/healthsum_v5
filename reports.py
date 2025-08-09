@@ -252,12 +252,12 @@ def get_default_gemini_schema():
     )
 
 # Funktion für die Erstellung des Berichts mit GPT-4
-def generate_report_gpt4(output_format, example_structure, system_prompt, prompt, health_record_text, year, health_record_custom_instructions, use_custom_instructions, record_id=None, medical_codes_text=None):
+def generate_report_gpt5(output_format, example_structure, system_prompt, prompt, health_record_text, year, health_record_custom_instructions, use_custom_instructions, record_id=None, medical_codes_text=None):
     """
-    Generiert einen Bericht für ein spezifisches Jahr mit GPT-4
+    Generiert einen Bericht für ein spezifisches Jahr mit GPT-5
     """
     try:
-        logger.info(f"Starte GPT-4 Bericht für Jahr {year}")
+        logger.info(f"Starte GPT-5 Bericht für Jahr {year}")
         
         if not use_custom_instructions:
             year_focussed_actual_prompt = (
@@ -287,7 +287,7 @@ def generate_report_gpt4(output_format, example_structure, system_prompt, prompt
                 {"role": "user", "content": f"Das ist deine Datenbasis: {health_record_text}"}
             ],
             "temperature": 0.7,
-            "max_tokens": 16000,
+            "max_completion_tokens": 32000,
         }
 
         if output_format.lower() == "json":
@@ -417,7 +417,7 @@ def generate_report_gemini(output_format, example_structure, system_prompt, prom
                 
                 generation_config = {
                     "temperature": 0.2,
-                    "max_output_tokens": 8192,
+                    "max_output_tokens": 32000,  # Erhöht von 8192 auf 32000
                     "response_schema": response_schema,
                     "response_mime_type": "application/json",
                 }
@@ -427,6 +427,8 @@ def generate_report_gemini(output_format, example_structure, system_prompt, prom
                     "temperature": 1
                 }
 
+           
+            
             gemini_model = genai.GenerativeModel(
                 model_name=os.environ["GEMINI_MODEL"],
                 generation_config=generation_config
@@ -450,8 +452,38 @@ def generate_report_gemini(output_format, example_structure, system_prompt, prom
                 logger.info("Sende Nachricht ohne System-PDF an Gemini")
 
             response = chat_session.send_message(message_content)
-            response_text = response.text.strip()
-            logger.info(f"Google Gemini API-Antwort erhalten: {response_text[:100]}...")
+            
+            # Bessere Gemini Response-Behandlung
+            try:
+                response_text = response.text.strip()
+                logger.info(f"Google Gemini API-Antwort erhalten: {response_text[:100]}...")
+            except ValueError as response_error:
+                logger.error(f"Gemini Response Error: {response_error}")
+                logger.error(f"Response candidates: {response.candidates}")
+                
+                # Prüfe finish_reason
+                if response.candidates:
+                    candidate = response.candidates[0]
+                    finish_reason = candidate.finish_reason if hasattr(candidate, 'finish_reason') else None
+                    logger.error(f"Finish reason: {finish_reason}")
+                    
+                    # Finish reasons: 1=STOP, 2=MAX_TOKENS, 3=SAFETY, 4=RECITATION, 5=OTHER
+                    if finish_reason == 2:  # MAX_TOKENS
+                        logger.error(f"Gemini hat das Token-Limit erreicht für Jahr {year}")
+                        # Versuche es nochmal mit reduziertem Text oder nutze Fallback
+                        return f"[MAX_TOKENS] Gemini hat das Token-Limit für {year} erreicht. Bitte reduzieren Sie die Datenmenge."
+                    elif finish_reason == 3:  # SAFETY
+                        logger.error(f"Content wurde von Gemini Safety-Filtern blockiert für Jahr {year}")
+                        return f"[SAFETY BLOCKED] Gemini hat den Content für {year} aus Sicherheitsgründen blockiert."
+                    elif finish_reason == 4:  # RECITATION
+                        logger.error(f"Content wurde wegen Recitation blockiert für Jahr {year}")
+                        return f"[RECITATION BLOCKED] Gemini hat den Content für {year} wegen Urheberrechtsproblemen blockiert."
+                    else:
+                        logger.error(f"Unbekannter finish_reason: {finish_reason} für Jahr {year}")
+                        return f"[ERROR] Gemini Response-Fehler für {year}: {response_error} (finish_reason: {finish_reason})"
+                else:
+                    logger.error(f"Keine Candidates in Gemini Response für Jahr {year}")
+                    return f"[ERROR] Keine Response-Candidates von Gemini für {year}"
 
             if output_format.lower() == "json":
                 try:
@@ -504,6 +536,20 @@ def generate_report(template_name, output_format, example_structure, system_prom
     """
     Generiert einen kombinierten Gesundheitsbericht für den angegebenen Zeitraum (mehrere Jahre).
     """
+    # Sichere Fallback-Prüfung für None-Datumswerte
+    if health_record_begin is None or health_record_end is None:
+        current_year = datetime.now().year
+        fallback_start_year = current_year - 20
+        fallback_end_year = current_year
+        
+        if health_record_begin is None:
+            health_record_begin = datetime(fallback_start_year, 1, 1)
+            logger.warning(f"health_record_begin war None, verwende Fallback: {fallback_start_year}")
+        
+        if health_record_end is None:
+            health_record_end = datetime(fallback_end_year, 12, 31)
+            logger.warning(f"health_record_end war None, verwende Fallback: {fallback_end_year}")
+    
     logger.info(f"Starte Berichterstellung für Zeitraum {health_record_begin.year}-{health_record_end.year}")
     
     all_year_reports = []
@@ -511,13 +557,14 @@ def generate_report(template_name, output_format, example_structure, system_prom
 
     # Entscheide, ob GPT-4 oder Gemini verwendet wird
     # use_gemini = health_record_token_count > token_threshold
-    use_gemini = True
+    use_gemini = True  # Immer Gemini verwenden
     if use_gemini:
         logger.info(f"Verwende Google Gemini aufgrund der Token-Anzahl: {health_record_token_count}")
     else:
         logger.info(f"Verwende GPT-4 aufgrund der Token-Anzahl: {health_record_token_count}")
 
     # Verwandle health_record_begin und health_record_end in Jahreszahlen
+    # (Diese sind jetzt garantiert nicht None aufgrund der obigen Prüfung)
     start_year = health_record_begin.year
     end_year = health_record_end.year
     logger.info(f"Verarbeite Jahre von {start_year} bis {end_year}")
@@ -533,7 +580,7 @@ def generate_report(template_name, output_format, example_structure, system_prom
                     use_custom_instructions, record_id, medical_codes_text, system_pdf_filename
                 )
             else:
-                yearly_report = generate_report_gpt4(
+                yearly_report = generate_report_gpt5(
                     output_format, example_structure, system_prompt,
                     prompt, health_record_text, year, health_record_custom_instructions,
                     use_custom_instructions, record_id, medical_codes_text
@@ -541,9 +588,19 @@ def generate_report(template_name, output_format, example_structure, system_prom
 
             if yearly_report is not None:
                 if output_format.lower() == "json":
-                    logger.info(f"Jahr {year}: JSON-Report erfolgreich generiert")
-                    logger.debug(f"Jahr {year} Report Inhalt: {yearly_report.to_dict('records')[:2]}...")  # Zeige die ersten 2 Einträge
-                    all_year_reports.append(yearly_report)
+                    # Prüfe ob yearly_report ein DataFrame oder ein String (Fehler) ist
+                    if isinstance(yearly_report, pd.DataFrame):
+                        logger.info(f"Jahr {year}: JSON-Report erfolgreich generiert")
+                        logger.debug(f"Jahr {year} Report Inhalt: {yearly_report.to_dict('records')[:2] if len(yearly_report) >= 2 else yearly_report.to_dict('records')}...")  # Zeige die ersten 2 Einträge
+                        all_year_reports.append(yearly_report)
+                    elif isinstance(yearly_report, str):
+                        # Bei Fehlern (z.B. SAFETY BLOCKED) ist yearly_report ein String
+                        logger.warning(f"Jahr {year}: Report als String erhalten (möglicherweise Fehler): {yearly_report[:100]}...")
+                        # Überspringe dieses Jahr
+                        continue
+                    else:
+                        logger.warning(f"Jahr {year}: Unerwarteter Report-Typ: {type(yearly_report)}")
+                        continue
                 else:
                     logger.info(f"Jahr {year}: Text-Report erfolgreich generiert")
                     logger.debug(f"Jahr {year} Report Länge: {len(yearly_report)} Zeichen")
@@ -608,7 +665,7 @@ def generate_report(template_name, output_format, example_structure, system_prom
                         template_name, output_format, example_structure, system_prompt, prompt, combined_text_report
                     )
                 else:
-                    final_report = process_combined_text_gpt4(
+                    final_report = process_combined_text_gpt5(
                         template_name, output_format, example_structure, system_prompt, prompt, combined_text_report
                     )
                 logger.info(f"Zusätzliche Verarbeitung abgeschlossen. Finale Berichtslänge: {len(final_report)} Zeichen")
@@ -626,11 +683,11 @@ def generate_report(template_name, output_format, example_structure, system_prom
         logger.warning("Keine Berichte zum Zusammenführen verfügbar")
         return "Keine Berichte verfügbar."
 
-def process_combined_text_gpt4(template_name, output_format, example_structure, system_prompt, prompt, combined_text_report):
+def process_combined_text_gpt5(template_name, output_format, example_structure, system_prompt, prompt, combined_text_report):
     """
-    Verarbeitet den kombinierten Textbericht mit GPT-4, um eine Gesamtauswertung zu erhalten.
+    Verarbeitet den kombinierten Textbericht mit GPT-5, um eine Gesamtauswertung zu erhalten.
     """
-    logger.info("Verarbeite den kombinierten Textbericht mit GPT-4.")
+    logger.info("Verarbeite den kombinierten Textbericht mit GPT-5.")
 
     final_system_prompt = system_prompt
     final_prompt = (
@@ -646,7 +703,7 @@ def process_combined_text_gpt4(template_name, output_format, example_structure, 
             {"role": "user", "content": final_prompt}
         ],
         "temperature": 0.7,
-        "max_tokens": 16000,
+        "max_completion_tokens": 32000,
     }
 
     try:
@@ -674,16 +731,73 @@ def process_combined_text_gemini(template_name, output_format, example_structure
     try:
         # Generationskonfiguration
         generation_config = genai.types.GenerationConfig(
-            max_output_tokens=8000,
+            max_output_tokens=32000,  # Erhöht von 8000 auf 32000
+            temperature=0.7
         )
 
-        response = gemini_model.generate_content(
-            f"{final_system_prompt}\n\n{final_prompt}",
-            generation_config=generation_config
+        # Konfiguriere minimale Safety Settings für medizinische Daten
+        safety_settings = [
+            {
+                "category": "HARM_CATEGORY_HARASSMENT",
+                "threshold": "BLOCK_NONE"
+            },
+            {
+                "category": "HARM_CATEGORY_HATE_SPEECH",
+                "threshold": "BLOCK_NONE"
+            },
+            {
+                "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                "threshold": "BLOCK_NONE"
+            },
+            {
+                "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+                "threshold": "BLOCK_NONE"
+            },
+            {
+                "category": "HARM_CATEGORY_CIVIC_INTEGRITY",
+                "threshold": "BLOCK_NONE"
+            }
+        ]
+
+        # Erstelle neue Model-Instanz mit lockeren Safety Settings
+        safe_gemini_model = genai.GenerativeModel(
+            model_name=os.environ["GEMINI_MODEL"],
+            generation_config=generation_config,
+            safety_settings=safety_settings
         )
-        response_text = response.text.strip()
-        logger.info("Verarbeitung mit Google Gemini abgeschlossen.")
-        return response_text
+
+        response = safe_gemini_model.generate_content(
+            f"{final_system_prompt}\n\n{final_prompt}"
+        )
+        
+        # Bessere Gemini Response-Behandlung
+        try:
+            response_text = response.text.strip()
+            logger.info("Verarbeitung mit Google Gemini abgeschlossen.")
+            return response_text
+        except ValueError as response_error:
+            logger.error(f"Gemini Combined Text Response Error: {response_error}")
+            logger.error(f"Response candidates: {response.candidates}")
+            
+            # Prüfe finish_reason
+            if response.candidates:
+                candidate = response.candidates[0]
+                finish_reason = candidate.finish_reason if hasattr(candidate, 'finish_reason') else None
+                logger.error(f"Combined text finish reason: {finish_reason}")
+                
+                # Finish reasons: 1=STOP, 2=MAX_TOKENS, 3=SAFETY, 4=RECITATION, 5=OTHER
+                if finish_reason == 2:  # MAX_TOKENS
+                    logger.error("Combined text hat Gemini Token-Limit erreicht")
+                    return f"[MAX_TOKENS] Gemini hat das Token-Limit für die Zusammenfassung erreicht.\n\nOriginal combined text:\n{combined_text_report}"
+                elif finish_reason == 3:  # SAFETY
+                    logger.error("Combined text wurde von Gemini Safety-Filtern blockiert")
+                    return f"[SAFETY BLOCKED] Gemini hat die Zusammenfassung aus Sicherheitsgründen blockiert.\n\nOriginal combined text:\n{combined_text_report}"
+                else:
+                    logger.error(f"Combined text Gemini-Fehler: {response_error}")
+                    return f"[ERROR] Gemini Combined Text Fehler: {response_error} (finish_reason: {finish_reason})\n\nOriginal combined text:\n{combined_text_report}"
+            else:
+                logger.error("Keine Candidates in Combined Text Gemini Response")
+                return f"[ERROR] Keine Response von Gemini\n\nOriginal combined text:\n{combined_text_report}"
     except Exception as e:
         logger.error(f"Fehler bei der Verarbeitung mit Google Gemini: {e}")
         return combined_text_report
