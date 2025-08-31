@@ -1,5 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
+<!-- Hidden element for JavaScript variables -->
+<div id="js-config" style="display:none;" data-is-admin="{{ is_admin|lower }}"></div>
 <div class="container max-w-full mx-auto px-4 py-8">
     <div class="flex flex-col lg:flex-row lg:space-x-8">
         <!-- Left Column: List of Health Records -->
@@ -9,6 +11,24 @@
             <div class="mb-6">
                 <input type="text" id="searchInput" placeholder="Suche nach Patientenname" class="w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
             </div>
+            {% if is_admin %}
+            <div class="mb-6" id="userFilterContainer">
+                <div class="flex flex-wrap gap-2">
+                    <button id="filterAllUsers" 
+                            class="user-filter-btn px-4 py-2 rounded-lg font-medium text-sm transition-all duration-200 bg-gray-200 text-gray-700 hover:bg-gray-300" 
+                            onclick="filterByUser(null)">
+                        Alle Nutzer
+                    </button>
+                    {% for user in users %}
+                    <button class="user-filter-btn px-4 py-2 rounded-lg font-medium text-sm transition-all duration-200 bg-white border border-gray-300 text-gray-700 hover:bg-gray-100" 
+                            onclick="filterByUser('{{ user.id }}')"
+                            data-user-id="{{ user.id }}">
+                        {{ user.vorname }} {{ user.nachname }}
+                    </button>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
             <div class="max-h-screen overflow-y-auto">
                 <ul id="recordList" class="space-y-6">
                     {% for record in records %}
@@ -113,12 +133,28 @@
 .processing-pulse {
     animation: processing-pulse 2s ease-in-out infinite;
 }
+
+.rotate-180 {
+    transform: rotate(180deg);
+}
 </style>
 
 <script>
 // Globale Variablen
 let currentRecordId = null; // Variable zum Speichern der aktuellen Datensatz-ID
 let activePollingIntervals = {}; // Verwalte aktive Polling-Intervalle
+let currentUserFilter = null; // Aktuelle User-Filterung (null = alle User für Admins)
+// Admin-Status - wird später aus DOM gelesen
+let isAdmin = false;
+
+// Funktion zum Lesen des Admin-Status
+function getAdminStatus() {
+    const configElement = document.getElementById('js-config');
+    if (configElement && !isAdmin) {
+        isAdmin = configElement.getAttribute('data-is-admin') === 'true';
+    }
+    return isAdmin;
+}
 
 // Status-Badge-HTML für Reports generieren
 function getReportStatusBadgeHtml(report) {
@@ -405,8 +441,8 @@ function loadReports(recordId, startNewPolling = true) {
                                 class="${canRegenerate ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-gray-400 cursor-not-allowed'} text-white font-bold py-2 px-4 rounded-lg transition duration-300" 
                                 ${!canRegenerate ? 'disabled' : ''} 
                                 aria-label="Bericht neu generieren"
-                                ${isFailed ? 'title="Fehlgeschlagenen Report erneut generieren"' : ''}>
-                            ${isFailed ? 'Erneut versuchen' : 'Neu generieren'}
+                                ${isFailed ? 'title="Neuen Report generieren"' : ''}>
+                            Neu generieren
                         </button>
                     `;
                 } else {
@@ -433,7 +469,19 @@ function loadReports(recordId, startNewPolling = true) {
                     <div class="px-6 py-5">
                         <div class="flex items-center justify-between mb-2">
                             <div class="flex-grow">
-                                <h3 class="text-xl font-semibold mb-1">${report.report_type}</h3>
+                                <div class="flex items-center gap-2 mb-1">
+                                    <h3 class="text-xl font-semibold">${report.report_type}</h3>
+                                    ${report.report_count > 0 ? `
+                                        <button onclick="toggleReportHistory(${report.report_template_id})" 
+                                                class="text-gray-500 hover:text-gray-700 transition-colors duration-200">
+                                            <svg id="chevron-${report.report_template_id}" 
+                                                 class="w-5 h-5 transform transition-transform duration-200" 
+                                                 fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                                            </svg>
+                                        </button>
+                                    ` : ''}
+                                </div>
                                 ${report.exists && report.unique_identifier ? 
                                     `<p class="text-sm text-gray-700 font-mono mb-1">${report.unique_identifier}</p>` : 
                                     ''}
@@ -447,6 +495,61 @@ function loadReports(recordId, startNewPolling = true) {
                             </div>
                         </div>
                         ${statusIndicator}
+                        
+                        <!-- Report History Table -->
+                        ${report.report_count > 0 ? `
+                        <div id="report-history-${report.report_template_id}" class="hidden mt-4 border-t pt-4">
+                            <div class="max-h-40 overflow-y-auto">
+                                <table class="min-w-full divide-y divide-gray-200">
+                                    <thead class="bg-gray-50 sticky top-0">
+                                        <tr>
+                                            <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                Bezeichner
+                                            </th>
+                                            <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                Status
+                                            </th>
+                                            <th class="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                Aktionen
+                                            </th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="bg-white divide-y divide-gray-200" id="report-history-body-${report.report_template_id}">
+                                        ${report.all_reports.map((rep, index) => `
+                                            <tr class="${index >= 5 ? 'hidden' : ''}">
+                                                <td class="px-3 py-2 text-sm text-gray-900 font-mono">
+                                                    ${rep.unique_identifier}
+                                                </td>
+                                                <td class="px-3 py-2">
+                                                    ${getReportStatusBadgeHtml(rep)}
+                                                </td>
+                                                <td class="px-3 py-2 text-right">
+                                                    <button onclick="window.open('/report/${rep.id}', '_blank')" 
+                                                            class="text-blue-500 hover:text-blue-700 mr-2"
+                                                            title="Report ansehen">
+                                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                                                                  d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                                                                  d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                                                        </svg>
+                                                    </button>
+                                                    <button onclick="deleteReport(${rep.id})" 
+                                                            class="text-red-500 hover:text-red-700"
+                                                            title="Report löschen">
+                                                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                                                                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                                        </svg>
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        ` : ''}
                     </div>
                 `;
                 reportsContainer.appendChild(reportCard);
@@ -641,8 +744,47 @@ function regenerateReport(reportId) {
                 viewLink.setAttribute('href', `/report/${reportId}`);
                 viewLink.removeAttribute('onclick');
             }
+        } else if (data.report_id) {
+            // Starte Polling für den neuen Report
+            console.log(`Starting polling for new report ID: ${data.report_id}`);
+            
+            // Direkt das Polling starten, ohne template_id zu suchen
+            // Das neue Polling-System kann mit der report_id alleine arbeiten
+            const pollingKey = `${currentRecordId}-report-${data.report_id}`;
+            const pollInterval = setInterval(() => {
+                if (document.hidden) return;
+                
+                fetch(`/get_reports/${currentRecordId}`)
+                    .then(response => response.json())
+                    .then(reportData => {
+                        // Prüfe ob der neue Report fertig ist
+                        const allReports = reportData.reports.flatMap(r => r.all_reports || []);
+                        const newReport = allReports.find(r => r.id === data.report_id);
+                        
+                        if (newReport && newReport.generation_status !== 'generating') {
+                            console.log(`✅ New report ${data.report_id} status changed to: ${newReport.generation_status}`);
+                            clearInterval(activePollingIntervals[pollingKey]);
+                            delete activePollingIntervals[pollingKey];
+                            loadReports(currentRecordId, false);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error in report regeneration polling:', error);
+                        clearInterval(activePollingIntervals[pollingKey]);
+                        delete activePollingIntervals[pollingKey];
+                    });
+            }, 5000);
+            
+            activePollingIntervals[pollingKey] = pollInterval;
+            
+            // Auto-stop nach 10 Minuten
+            setTimeout(() => {
+                if (activePollingIntervals[pollingKey]) {
+                    clearInterval(activePollingIntervals[pollingKey]);
+                    delete activePollingIntervals[pollingKey];
+                }
+            }, 600000);
         }
-        // Das Polling übernimmt die Status-Updates
     })
     .catch(error => {
         console.error("Report regeneration request failed:", error);
@@ -665,22 +807,8 @@ function regenerateReport(reportId) {
 
 // Vereinfachtes System ohne Socket.io und Overlay
 
-// Suchfunktion für die Liste der Datensätze
-document.getElementById('searchInput').addEventListener('input', function() {
-    const searchTerm = this.value.toLowerCase();
-    const records = document.querySelectorAll('#recordList li');
-    
-    records.forEach(record => {
-        const patientName = record.querySelector('h3').textContent.toLowerCase();
-        const patientId = record.getAttribute('data-id').toLowerCase();
-        
-        if (patientName.includes(searchTerm) || patientId.includes(searchTerm)) {
-            record.style.display = '';
-        } else {
-            record.style.display = 'none';
-        }
-    });
-});
+// HINWEIS: Die Suchfunktion wurde weiter unten als filterRecordsBySearch() neu definiert 
+// und unterstützt nun auch die Suche nach Benutzernamen für Admins
 
 // Page Visibility Change Handler - Reload wenn Tab wieder sichtbar wird
 document.addEventListener('visibilitychange', function() {
@@ -890,6 +1018,179 @@ function showReportTaskLogsForSpecificType(reportType) {
             console.error('Error fetching task logs:', error);
             alert('Fehler beim Laden der Task-Logs');
         });
+}
+
+// User-Filter-Funktion für Admins
+function filterByUser(userId) {
+    // Konvertiere userId zu Number wenn es nicht null ist
+    currentUserFilter = userId === null ? null : Number(userId);
+    
+    // Update Button-Styles
+    const allButtons = document.querySelectorAll('.user-filter-btn');
+    allButtons.forEach(btn => {
+        btn.classList.remove('bg-gray-200', 'text-gray-700');
+        btn.classList.add('bg-white', 'border', 'border-gray-300', 'text-gray-700');
+    });
+    
+    // Aktiven Button hervorheben
+    if (userId === null) {
+        const allUsersBtn = document.getElementById('filterAllUsers');
+        allUsersBtn.classList.remove('bg-white', 'border', 'border-gray-300');
+        allUsersBtn.classList.add('bg-gray-200', 'text-gray-700');
+    } else {
+        const activeBtn = document.querySelector(`button[data-user-id="${userId}"]`);
+        if (activeBtn) {
+            activeBtn.classList.remove('bg-white', 'border', 'border-gray-300');
+            activeBtn.classList.add('bg-gray-200', 'text-gray-700');
+        }
+    }
+    
+    // Liste neu laden
+    loadFilteredRecords();
+}
+
+// Lade gefilterte Records für Reports-Seite
+function loadFilteredRecords() {
+    // URL mit optionalem User-Filter erstellen
+    let url = '/get_datasets';
+    if (currentUserFilter !== null) {
+        url += `?user_id=${currentUserFilter}`;
+    }
+    
+    fetch(url)
+        .then(response => response.json())
+        .then(records => {
+            const recordList = document.getElementById('recordList');
+            recordList.innerHTML = '';
+            
+            records.forEach(record => {
+                const li = document.createElement('li');
+                li.className = 'bg-white shadow-lg overflow-hidden rounded-lg';
+                li.dataset.id = record.id;
+                li.onclick = () => loadReports(record.id);
+                
+                const userInfo = record.user_name && getAdminStatus() ? `
+                    <p class="text-sm text-gray-500">
+                        Benutzer: ${record.user_name}
+                    </p>` : '';
+                
+                li.innerHTML = `
+                    <div class="flex items-center justify-between px-6 py-5 cursor-pointer">
+                        <div class="flex items-center flex-grow">
+                            <div class="flex-shrink-0 h-14 w-14 rounded-full bg-blue-100 flex items-center justify-center mr-4">
+                                <span class="text-2xl font-bold text-blue-600">
+                                    ${record.patient_name ? record.patient_name[0].toUpperCase() : '?'}
+                                </span>
+                            </div>
+                            <div class="flex-grow">
+                                <h3 class="text-xl font-medium text-gray-900">
+                                    ${record.patient_name || 'Unbekannter Patient'}
+                                </h3>
+                                <p class="text-sm text-gray-500">
+                                    ID: ${record.id}
+                                </p>
+                                ${userInfo}
+                                <p class="text-sm text-gray-500">
+                                    ${record.timestamp}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                recordList.appendChild(li);
+            });
+            
+            // Suche erneut anwenden, falls aktiv
+            const searchInput = document.getElementById('searchInput');
+            if (searchInput.value) {
+                filterRecordsBySearch();
+            }
+        })
+        .catch(error => {
+            console.error('Fehler beim Laden der gefilterten Records:', error);
+        });
+}
+
+// Suchfunktion angepasst
+function filterRecordsBySearch() {
+    const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+    const records = document.querySelectorAll('#recordList li');
+    
+    records.forEach(record => {
+        const patientName = record.querySelector('h3').textContent.toLowerCase();
+        const patientId = record.getAttribute('data-id').toLowerCase();
+        const userNameElement = record.querySelector('p:nth-of-type(2)');
+        const userName = userNameElement && userNameElement.textContent.includes('Benutzer:') 
+            ? userNameElement.textContent.toLowerCase() 
+            : '';
+        
+        if (patientName.includes(searchTerm) || 
+            patientId.includes(searchTerm) || 
+            userName.includes(searchTerm)) {
+            record.style.display = '';
+        } else {
+            record.style.display = 'none';
+        }
+    });
+}
+
+// Suchfunktion Event Listener hinzufügen
+document.addEventListener('DOMContentLoaded', function() {
+    // Admin-Status beim Laden lesen
+    getAdminStatus();
+    
+    document.getElementById('searchInput').addEventListener('input', filterRecordsBySearch);
+});
+
+// Toggle Report History
+function toggleReportHistory(templateId) {
+    const historyDiv = document.getElementById(`report-history-${templateId}`);
+    const chevron = document.getElementById(`chevron-${templateId}`);
+    
+    if (historyDiv.classList.contains('hidden')) {
+        historyDiv.classList.remove('hidden');
+        chevron.classList.add('rotate-180');
+        
+        // Zeige alle Zeilen wenn mehr als 5 vorhanden sind
+        const tbody = document.getElementById(`report-history-body-${templateId}`);
+        const rows = tbody.querySelectorAll('tr');
+        rows.forEach(row => row.classList.remove('hidden'));
+    } else {
+        historyDiv.classList.add('hidden');
+        chevron.classList.remove('rotate-180');
+    }
+}
+
+// Delete Report
+function deleteReport(reportId) {
+    if (!confirm('Sind Sie sicher, dass Sie diesen Report löschen möchten?')) {
+        return;
+    }
+    
+    fetch(`/delete_report/${reportId}`, {
+        method: 'DELETE',
+        headers: {
+            'X-Requested-With': 'XMLHttpRequest',
+            'Content-Type': 'application/json',
+        },
+        credentials: 'include'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Reload reports to update the view
+            if (currentRecordId) {
+                loadReports(currentRecordId);
+            }
+        } else {
+            alert('Fehler beim Löschen des Reports: ' + (data.error || 'Unbekannter Fehler'));
+        }
+    })
+    .catch(error => {
+        console.error('Error deleting report:', error);
+        alert('Fehler beim Löschen des Reports');
+    });
 }
 </script>
 {% endblock %}

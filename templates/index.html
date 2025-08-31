@@ -11,6 +11,24 @@
                        placeholder="Suche (z.B. 'Larry and 1982' oder 'Müller')" 
                        class="w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
             </div>
+            {% if is_admin %}
+            <div class="mb-6" id="userFilterContainer">
+                <div class="flex flex-wrap gap-2">
+                    <button id="filterAllUsers" 
+                            class="user-filter-btn px-4 py-2 rounded-lg font-medium text-sm transition-all duration-200 bg-gray-200 text-gray-700 hover:bg-gray-300" 
+                            onclick="filterByUser(null)">
+                        Alle Nutzer
+                    </button>
+                    {% for user in users %}
+                    <button class="user-filter-btn px-4 py-2 rounded-lg font-medium text-sm transition-all duration-200 bg-white border border-gray-300 text-gray-700 hover:bg-gray-100" 
+                            onclick="filterByUser({{ user.id }})"
+                            data-user-id="{{ user.id }}">
+                        {{ user.vorname }} {{ user.nachname }}
+                    </button>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
             <div class="max-h-screen overflow-y-auto">
             <ul id="datasetList" class="space-y-6">
             {% for record in records %}
@@ -342,6 +360,9 @@ function debounce(fn, delay = 250) {
 // AbortController for datasets refresh to cancel overlapping requests
 let datasetsAbortController = null;
 
+// Aktuelle User-Filterung (null = alle User für Admins)
+let currentUserFilter = null;
+
 document.addEventListener('DOMContentLoaded', function() {
     const mainForm = document.getElementById('uploadForm');
     const modalForm = document.getElementById('modalUploadForm');
@@ -638,7 +659,13 @@ function refreshDatasetList() {
     }
     datasetsAbortController = new AbortController();
 
-    fetch('/get_datasets', { signal: datasetsAbortController.signal })
+    // URL mit optionalem User-Filter erstellen
+    let url = '/get_datasets';
+    if (currentUserFilter !== null) {
+        url += `?user_id=${currentUserFilter}`;
+    }
+
+    fetch(url, { signal: datasetsAbortController.signal })
     .then(response => response.json())
     .then(data => {
         updateDatasetList(data);
@@ -690,6 +717,7 @@ function updateDatasetList(data) {
                     <div class="flex-grow">
                         <h3 class="text-xl font-medium text-gray-900 patient-name">${record.patient_name || 'Unbekannter Patient'}</h3>
                         <p class="text-sm text-gray-500 patient-id">ID: ${record.id}</p>
+                        ${record.user_name ? `<p class="text-sm text-gray-500">Benutzer: ${record.user_name}</p>` : ''}
                         <p class="text-sm text-gray-500 birth-date">Geburtsdatum: ${birthdateTimestamp}</p>
                         <p class="text-sm text-gray-500">${formattedTimestamp}</p>
                         <p class="text-sm text-gray-500">Berichte: ${record.create_reports ? 'Ja' : 'Nein'}</p>
@@ -1236,6 +1264,34 @@ function showTaskLogs(recordId) {
 
 function closeTaskLogsModal() {
     document.getElementById('taskLogsModal').classList.add('hidden');
+}
+
+// User-Filter-Funktion für Admins
+function filterByUser(userId) {
+    currentUserFilter = userId;
+    
+    // Update Button-Styles
+    const allButtons = document.querySelectorAll('.user-filter-btn');
+    allButtons.forEach(btn => {
+        btn.classList.remove('bg-gray-200', 'text-gray-700');
+        btn.classList.add('bg-white', 'border', 'border-gray-300', 'text-gray-700');
+    });
+    
+    // Aktiven Button hervorheben
+    if (userId === null) {
+        const allUsersBtn = document.getElementById('filterAllUsers');
+        allUsersBtn.classList.remove('bg-white', 'border', 'border-gray-300');
+        allUsersBtn.classList.add('bg-gray-200', 'text-gray-700');
+    } else {
+        const activeBtn = document.querySelector(`button[data-user-id="${userId}"]`);
+        if (activeBtn) {
+            activeBtn.classList.remove('bg-white', 'border', 'border-gray-300');
+            activeBtn.classList.add('bg-gray-200', 'text-gray-700');
+        }
+    }
+    
+    // Liste neu laden
+    refreshDatasetList();
 }
 
 </script>

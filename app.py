@@ -62,10 +62,17 @@ def load_user(user_id):
 @app.route('/')
 @login_required
 def index():
-    records = HealthRecord.query.filter_by(user_id=current_user.id).order_by(HealthRecord.timestamp.desc()).all()
+    # Admins können alle Records sehen
+    if current_user.level == 'admin':
+        records = HealthRecord.query.order_by(HealthRecord.timestamp.desc()).all()
+        users = User.query.filter_by(is_active=True).order_by(User.nachname, User.vorname).all()
+    else:
+        records = HealthRecord.query.filter_by(user_id=current_user.id).order_by(HealthRecord.timestamp.desc()).all()
+        users = []
+    
     #Number of total report_templates
     report_templates = ReportTemplate.query.count()
-    return render_template('index.html', records=records, report_templates=report_templates)
+    return render_template('index.html', records=records, report_templates=report_templates, users=users, is_admin=(current_user.level == 'admin'))
 
 
 @app.route('/upload', methods=['POST'])
@@ -167,10 +174,44 @@ def task_status(task_id):
     result = AsyncResult(task_id)
     return jsonify({'state': result.state})
 
+@app.route('/get_users')
+@login_required
+def get_users():
+    # Nur Admins können die User-Liste abrufen
+    if current_user.level != 'admin':
+        abort(403)
+    
+    users = User.query.filter_by(is_active=True).order_by(User.nachname, User.vorname).all()
+    user_data = []
+    
+    for user in users:
+        # Zähle die Anzahl der Records pro User
+        record_count = HealthRecord.query.filter_by(user_id=user.id).count()
+        user_data.append({
+            'id': user.id,
+            'vorname': user.vorname,
+            'nachname': user.nachname,
+            'username': user.username,
+            'record_count': record_count
+        })
+    
+    return jsonify(user_data)
+
 @app.route('/get_datasets')
 @login_required
 def get_datasets():
-    records = HealthRecord.query.filter_by(user_id=current_user.id).order_by(HealthRecord.timestamp.desc()).all()
+    # Hole optionalen user_id Parameter
+    filter_user_id = request.args.get('user_id', type=int)
+    
+    # Admins können alle Records sehen oder nach User filtern
+    if current_user.level == 'admin':
+        if filter_user_id:
+            records = HealthRecord.query.filter_by(user_id=filter_user_id).order_by(HealthRecord.timestamp.desc()).all()
+        else:
+            records = HealthRecord.query.order_by(HealthRecord.timestamp.desc()).all()
+    else:
+        # Normale User sehen nur ihre eigenen Records
+        records = HealthRecord.query.filter_by(user_id=current_user.id).order_by(HealthRecord.timestamp.desc()).all()
     
     # Debug: Log processing_status values
     for record in records:
@@ -184,7 +225,7 @@ def get_datasets():
             status='failed'
         ).count()
         
-        result.append({
+        record_data = {
             'id': record.id,
             'timestamp': format_timestamp(record.timestamp),
             'filenames': record.filenames,
@@ -198,7 +239,16 @@ def get_datasets():
             'processing_completed_at': record.processing_completed_at.isoformat() if record.processing_completed_at else None,
             'processing_error_message': record.processing_error_message,
             'has_failed_tasks': failed_tasks > 0
-        })
+        }
+        
+        # Füge User-Informationen hinzu wenn Admin
+        if current_user.level == 'admin':
+            user = User.query.get(record.user_id)
+            if user:
+                record_data['user_name'] = f"{user.vorname} {user.nachname}"
+                record_data['user_id'] = user.id
+        
+        result.append(record_data)
     
     return jsonify(result)
 
@@ -207,7 +257,8 @@ def get_datasets():
 @login_required
 def delete_record(record_id):
     record = HealthRecord.query.get_or_404(record_id)
-    if record.user_id != current_user.id:
+    # Admins können alle Records löschen
+    if record.user_id != current_user.id and current_user.level != 'admin':
         abort(403)  # HTTP 403 Forbidden
     db.session.delete(record)
     db.session.commit()
@@ -218,7 +269,8 @@ def delete_record(record_id):
 @login_required
 def get_record(record_id):
     record = HealthRecord.query.get_or_404(record_id)
-    if record.user_id != current_user.id:
+    # Admins können alle Records sehen
+    if record.user_id != current_user.id and current_user.level != 'admin':
         abort(403)
     return jsonify({
         'id': record.id,
@@ -237,22 +289,26 @@ def get_record(record_id):
 @app.route('/read_reports')
 @login_required
 def read_reports():
-    records = HealthRecord.query.filter_by(user_id=current_user.id).order_by(HealthRecord.timestamp.desc()).all()
-    return render_template('read_reports.html', records=records)
+    # Admins können alle Records sehen
+    if current_user.level == 'admin':
+        records = HealthRecord.query.order_by(HealthRecord.timestamp.desc()).all()
+        users = User.query.filter_by(is_active=True).order_by(User.nachname, User.vorname).all()
+    else:
+        records = HealthRecord.query.filter_by(user_id=current_user.id).order_by(HealthRecord.timestamp.desc()).all()
+        users = []
+    
+    return render_template('read_reports.html', records=records, users=users, is_admin=(current_user.level == 'admin'))
 
 @app.route('/get_reports/<int:record_id>')
 @login_required
 def get_reports(record_id):
     record = HealthRecord.query.get_or_404(record_id)
-    if record.user_id != current_user.id:
+    # Admins können alle Records sehen
+    if record.user_id != current_user.id and current_user.level != 'admin':
         abort(403)
 
     # Alle verfügbaren ReportTemplates abrufen
     report_templates = ReportTemplate.query.all()
-
-    # Bereits existierende Berichte für diesen Datensatz abrufen
-    existing_reports = Report.query.filter_by(health_record_id=record_id).all()
-    existing_reports_map = {(report.report_template_id): report for report in existing_reports}
 
     # Prüfe ob es fehlgeschlagene create_report Tasks für diesen HealthRecord gibt
     failed_report_tasks = TaskLog.query.filter_by(
@@ -263,20 +319,39 @@ def get_reports(record_id):
 
     reports = []
     for template in report_templates:
-        report = existing_reports_map.get(template.id)
-        if report:
-            # Bericht existiert bereits für dieses Template und Datensatz
+        # Hole ALLE Reports für dieses Template und Datensatz, sortiert nach Erstellungsdatum (neueste zuerst)
+        template_reports = Report.query.filter_by(
+            health_record_id=record_id,
+            report_template_id=template.id
+        ).order_by(Report.created_at.desc()).all()
+        
+        if template_reports:
+            # Es gibt bereits Reports für dieses Template
+            latest_report = template_reports[0]  # Der neueste Report
+            
+            # Sammle alle Reports für dieses Template
+            all_reports = []
+            for rep in template_reports:
+                all_reports.append({
+                    'id': rep.id,
+                    'created_at': rep.created_at.isoformat(),
+                    'generation_status': rep.generation_status or 'completed',
+                    'unique_identifier': rep.unique_identifier or f"MIGRATED-{rep.id}"
+                })
+            
             reports.append({
-                'id': report.id,
+                'id': latest_report.id,  # ID des neuesten Reports
                 'report_type': template.template_name,
-                'created_at': report.created_at.isoformat(),
+                'created_at': latest_report.created_at.isoformat(),
                 'exists': True,
                 'report_template_id': template.id,
-                'generation_status': report.generation_status or 'completed',  # Default für migrierte Reports
-                'generation_started_at': report.generation_started_at.isoformat() if report.generation_started_at else None,
-                'generation_completed_at': report.generation_completed_at.isoformat() if report.generation_completed_at else None,
-                'generation_error_message': report.generation_error_message,
-                'unique_identifier': report.unique_identifier or f"MIGRATED-{report.id}"  # Fallback für migrierte Reports
+                'generation_status': latest_report.generation_status or 'completed',
+                'generation_started_at': latest_report.generation_started_at.isoformat() if latest_report.generation_started_at else None,
+                'generation_completed_at': latest_report.generation_completed_at.isoformat() if latest_report.generation_completed_at else None,
+                'generation_error_message': latest_report.generation_error_message,
+                'unique_identifier': latest_report.unique_identifier or f"MIGRATED-{latest_report.id}",
+                'all_reports': all_reports,  # Alle Reports dieses Typs
+                'report_count': len(template_reports)
             })
         else:
             # Bericht existiert noch nicht
@@ -289,7 +364,9 @@ def get_reports(record_id):
                 'generation_status': 'pending',
                 'generation_started_at': None,
                 'generation_completed_at': None,
-                'generation_error_message': None
+                'generation_error_message': None,
+                'all_reports': [],
+                'report_count': 0
             })
     
     return jsonify({
@@ -313,7 +390,8 @@ def datenschutz():
 def get_task_logs(record_id):
     """API-Endpoint um Task-Logs für einen Health Record abzurufen"""
     record = HealthRecord.query.get_or_404(record_id)
-    if record.user_id != current_user.id:
+    # Admins können alle Records sehen
+    if record.user_id != current_user.id and current_user.level != 'admin':
         abort(403)
     
     # Hole alle Task-Logs für diesen Record, sortiert nach neuesten zuerst
@@ -549,7 +627,8 @@ def create_reports(record_id):
     if not record:
         return jsonify({'success': False, 'error': 'Record not found'}), 404
     
-    if record.user_id != current_user.id:
+    # Admins können alle Records sehen
+    if record.user_id != current_user.id and current_user.level != 'admin':
         abort(403)
     
     if record.create_reports:
@@ -586,7 +665,8 @@ def get_report(report_id):
 def view_report(report_id):
     report = get_report(report_id)
     if report:
-        if report['user_id'] != current_user.id:
+        # Admins können alle Reports sehen
+        if report['user_id'] != current_user.id and current_user.level != 'admin':
             abort(403)
         if report['output_format'].lower() == 'text':
             return render_template('view_report_text.html', report=report)
@@ -701,13 +781,74 @@ def update_template():
 @login_required
 def regenerate_report_route(report_id):
     report = Report.query.get_or_404(report_id)
-    if report.health_record.user_id != current_user.id:
+    # Admins können alle Reports sehen
+    if report.health_record.user_id != current_user.id and current_user.level != 'admin':
         abort(403)
     
-    # Starten des Celery-Tasks zum Neu-Generieren des Berichts
-    task = regenerate_report_task.apply_async(args=[report_id])
+    try:
+        # Erstelle einen NEUEN Report basierend auf dem alten
+        new_report = Report(
+            health_record_id=report.health_record_id,
+            report_template_id=report.report_template_id,
+            report_type=report.report_type,
+            generation_status='generating',
+            generation_started_at=datetime.utcnow()
+        )
+        db.session.add(new_report)
+        db.session.commit()
+        new_report_id = new_report.id
+        
+        logger.info(f"Created new report {new_report_id} as regeneration of report {report_id}")
+        
+        # Starte den Task mit der neuen Report-ID
+        task = generate_single_report.apply_async(
+            args=[report.health_record_id, report.report_template_id, new_report_id]
+        )
+        
+        return jsonify({
+            'message': 'Ein neuer Bericht wird generiert. Diese Aktion kann einige Zeit dauern.',
+            'task_id': task.id,
+            'report_id': new_report_id
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error regenerating report: {str(e)}")
+        return jsonify({'error': f'Fehler beim Regenerieren des Berichts: {str(e)}'}), 500
+
+
+@app.route('/delete_report/<int:report_id>', methods=['DELETE'])
+@login_required
+def delete_report(report_id):
+    report = Report.query.get_or_404(report_id)
+    # Admins können alle Reports löschen
+    if report.health_record.user_id != current_user.id and current_user.level != 'admin':
+        abort(403)
     
-    return jsonify({'message': 'Der Bericht wird neu generiert. Diese Aktion kann einige Zeit dauern.'})
+    try:
+        # Hole Template-ID und Record-ID bevor wir löschen
+        template_id = report.report_template_id
+        record_id = report.health_record_id
+        
+        db.session.delete(report)
+        db.session.commit()
+        
+        # Zähle verbleibende Reports dieses Typs
+        remaining_reports = Report.query.filter_by(
+            health_record_id=record_id,
+            report_template_id=template_id
+        ).count()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Report erfolgreich gelöscht',
+            'remaining_reports': remaining_reports
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error deleting report: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/create_template', methods=['POST'])
@@ -772,7 +913,8 @@ def kpi():
 @login_required
 def generate_report_route(record_id, template_id):
     record = HealthRecord.query.get_or_404(record_id)
-    if record.user_id != current_user.id:
+    # Admins können alle Records sehen
+    if record.user_id != current_user.id and current_user.level != 'admin':
         abort(403)
 
     # Überprüfen, ob der Bericht bereits existiert
@@ -964,7 +1106,8 @@ def delete_user(user_id):
 @login_required
 def update_record(record_id):
     record = HealthRecord.query.get_or_404(record_id)
-    if record.user_id != current_user.id:
+    # Admins können alle Records sehen
+    if record.user_id != current_user.id and current_user.level != 'admin':
         abort(403)
 
     try:
@@ -1027,7 +1170,8 @@ def update_record(record_id):
 @login_required
 def remove_file_from_record(record_id, filename):
     record = HealthRecord.query.get_or_404(record_id)
-    if record.user_id != current_user.id:
+    # Admins können alle Records sehen
+    if record.user_id != current_user.id and current_user.level != 'admin':
         abort(403)
 
     try:
