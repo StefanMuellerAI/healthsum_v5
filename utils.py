@@ -12,12 +12,14 @@ from models import db, TaskMonitor
 import requests
 from requests.auth import HTTPBasicAuth
 import logging
+from config import get_config
 
 logger = logging.getLogger(__name__)
 
-openai_model = os.environ["OPENAI_MODEL"]
-genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-gemini_model = genai.GenerativeModel("gemini-1.5-pro")
+# Verwende get_config() statt os.environ für Azure Key Vault Integration
+openai_model = get_config("OPENAI_MODEL")
+genai.configure(api_key=get_config("GEMINI_API_KEY"))
+gemini_model = genai.GenerativeModel(get_config("GEMINI_MODEL", "gemini-1.5-pro"))
 
 
 def count_tokens(text):
@@ -196,8 +198,8 @@ def get_icd_access_token():
     Holt einen Access Token von der WHO ICD API
     """
     token_endpoint = "https://icdaccessmanagement.who.int/connect/token"
-    client_id = os.getenv("ICD_API_CLIENT_ID")
-    client_secret = os.getenv("ICD_API_CLIENT_SECRET")
+    client_id = get_config("ICD_API_CLIENT_ID", os.getenv("ICD_API_CLIENT_ID"))
+    client_secret = get_config("ICD_API_CLIENT_SECRET", os.getenv("ICD_API_CLIENT_SECRET"))
     scope = "icdapi_access"
     
     try:

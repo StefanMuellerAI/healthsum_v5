@@ -16,28 +16,29 @@ import os
 import xml.etree.ElementTree as ET
 import re
 from flask_sqlalchemy import SQLAlchemy
+from config import get_config
 
-
+# Lade .env nur für ENVIRONMENT
 load_dotenv()
 
 # Debug Logging
 import logging
 logger = logging.getLogger(__name__)
 
-# Initialisierung der Clients
+# Initialisierung der Clients mit Azure Key Vault Config
 vision_azure_client = ImageAnalysisClient(
-    credential=AzureKeyCredential(os.getenv("AZURE_KEY_CREDENTIALS")),
+    credential=AzureKeyCredential(get_config("AZURE_KEY_CREDENTIALS")),
     endpoint="https://benda-vision.cognitiveservices.azure.com/",
 )
 
-openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-openai_model = os.environ["OPENAI_MODEL"]
+openai_client = OpenAI(api_key=get_config("OPENAI_API_KEY"))
+openai_model = get_config("OPENAI_MODEL")
 
 logger.info("EXTRACTORS DEBUG: Configuring Gemini...")
-genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+genai.configure(api_key=get_config("GEMINI_API_KEY"))
 logger.info("EXTRACTORS DEBUG: Creating Gemini model...")
 # Verwende das gleiche Modell wie in reports.py
-gemini_model_name = os.environ.get("GEMINI_MODEL", "gemini-1.5-pro")
+gemini_model_name = get_config("GEMINI_MODEL", "gemini-1.5-pro")
 logger.info(f"EXTRACTORS DEBUG: Using Gemini model: {gemini_model_name}")
 gemini_model = genai.GenerativeModel(gemini_model_name)
 logger.info(f"EXTRACTORS DEBUG: Gemini model created, type: {type(gemini_model)}")

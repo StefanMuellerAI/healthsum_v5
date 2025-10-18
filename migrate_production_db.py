@@ -3,6 +3,12 @@
 Production Database Migration Script
 Migriert health_records_old.db von der alten Struktur (models_old.py) 
 zur neuen Struktur (models.py) und benennt sie in health_records.db um.
+
+Neue Felder in dieser Migration:
+- HealthRecord: processing_status, processing_completed_at, processing_error_message
+- Report: unique_identifier, generation_status, generation_started_at, generation_completed_at, generation_error_message
+- User: mfa_code_hash, mfa_code_created_at, mfa_code_attempts, mfa_last_request_at (MFA-Support)
+- TaskLog: neue Tabelle für Task-Monitoring
 """
 
 from flask import Flask
@@ -157,6 +163,41 @@ def add_new_columns_to_old_db():
             """))
             conn.commit()
         
+        # User neue Spalten (MFA-Felder)
+        user_columns = [col['name'] for col in inspector.get_columns('user')]
+        
+        if 'mfa_code_hash' not in user_columns:
+            print("  - Füge mfa_code_hash zu user hinzu...")
+            conn.execute(text("""
+                ALTER TABLE user 
+                ADD COLUMN mfa_code_hash VARCHAR(128)
+            """))
+            conn.commit()
+        
+        if 'mfa_code_created_at' not in user_columns:
+            print("  - Füge mfa_code_created_at zu user hinzu...")
+            conn.execute(text("""
+                ALTER TABLE user 
+                ADD COLUMN mfa_code_created_at DATETIME
+            """))
+            conn.commit()
+        
+        if 'mfa_code_attempts' not in user_columns:
+            print("  - Füge mfa_code_attempts zu user hinzu...")
+            conn.execute(text("""
+                ALTER TABLE user 
+                ADD COLUMN mfa_code_attempts INTEGER DEFAULT 0
+            """))
+            conn.commit()
+        
+        if 'mfa_last_request_at' not in user_columns:
+            print("  - Füge mfa_last_request_at zu user hinzu...")
+            conn.execute(text("""
+                ALTER TABLE user 
+                ADD COLUMN mfa_last_request_at DATETIME
+            """))
+            conn.commit()
+        
         # Erstelle TaskLog Tabelle wenn nicht existiert
         tables = inspector.get_table_names()
         if 'task_log' not in tables:
@@ -291,6 +332,11 @@ def verify_migration():
         # Prüfe unique_identifiers
         reports_with_id = NewReport.query.filter(NewReport.unique_identifier.isnot(None)).count()
         print(f"  - Reports mit unique_identifier: {reports_with_id}")
+        
+        # Prüfe MFA-Felder bei Users
+        print(f"\n🔐 MFA-Felder:")
+        print(f"  - Alle User haben jetzt MFA-Felder (mfa_code_hash, mfa_code_created_at, mfa_code_attempts, mfa_last_request_at)")
+        print(f"  - MFA ist standardmäßig inaktiv (alle Felder NULL/0)")
 
 def main():
     """Hauptfunktion für die Migration"""
@@ -319,6 +365,21 @@ def main():
         
         if os.path.exists(backup_db_path):
             print(f"Ein Backup der vorherigen Datenbank wurde erstellt: {backup_db_path}")
+        
+        print("\n" + "=" * 50)
+        print("⚠️  WICHTIG: MFA-Konfiguration erforderlich")
+        print("=" * 50)
+        print("\nDie Anwendung verwendet jetzt Multi-Faktor-Authentifizierung.")
+        print("Stellen Sie sicher, dass folgende Umgebungsvariablen auf dem Server gesetzt sind:\n")
+        print("  MAIL_SERVER=smtp.gmail.com")
+        print("  MAIL_PORT=587")
+        print("  MAIL_USERNAME=ihre-email@example.com")
+        print("  MAIL_PASSWORD=ihr-app-passwort")
+        print("  MAIL_USE_TLS=True")
+        print("  MAIL_USE_SSL=False")
+        print("\nOhne diese Konfiguration können sich Benutzer nicht anmelden!")
+        print("\nWeitere Informationen: Siehe MFA_IMPLEMENTATION_README.md")
+        print("=" * 50)
         
         return 0
         

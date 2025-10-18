@@ -10,6 +10,7 @@ import logging
 import time
 from tenacity import retry, stop_after_attempt, wait_exponential
 import httpx
+from config import get_config
 
 # Konfiguration des Loggings
 logging.basicConfig(
@@ -22,9 +23,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Konfiguration der OpenAI- und Google Gemini-Clients
+# Konfiguration der OpenAI- und Google Gemini-Clients mit Azure Key Vault
 openai_client = OpenAI(
-    api_key=os.getenv("OPENAI_API_KEY"),
+    api_key=get_config("OPENAI_API_KEY"),
     timeout=500,
     max_retries=10,
     http_client=httpx.Client(
@@ -36,11 +37,11 @@ openai_client = OpenAI(
         )
     )
 )
-openai_model = os.environ["OPENAI_MODEL"]
-token_threshold = int(os.environ["TOKEN_THRESHOLD"])
+openai_model = get_config("OPENAI_MODEL")
+token_threshold = int(get_config("TOKEN_THRESHOLD", "100000"))
 
-genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-gemini_model = genai.GenerativeModel(model_name=os.environ["GEMINI_MODEL"])
+genai.configure(api_key=get_config("GEMINI_API_KEY"))
+gemini_model = genai.GenerativeModel(model_name=get_config("GEMINI_MODEL"))
 
 
 # Retry-Decorator für OpenAI API Calls
@@ -407,7 +408,7 @@ def generate_report_gemini(output_format, example_structure, system_prompt, prom
         )
 
         logger.info(f"Gemini Prompt: {year_focussed_actual_prompt}")
-        logger.info(f"Gemini Model: {os.environ['GEMINI_MODEL']}")
+        logger.info(f"Gemini Model: {get_config('GEMINI_MODEL')}")
 
         try:
             if output_format.lower() == "json":
@@ -430,7 +431,7 @@ def generate_report_gemini(output_format, example_structure, system_prompt, prom
            
             
             gemini_model = genai.GenerativeModel(
-                model_name=os.environ["GEMINI_MODEL"],
+                model_name=get_config("GEMINI_MODEL"),
                 generation_config=generation_config
             )
 
@@ -761,7 +762,7 @@ def process_combined_text_gemini(template_name, output_format, example_structure
 
         # Erstelle neue Model-Instanz mit lockeren Safety Settings
         safe_gemini_model = genai.GenerativeModel(
-            model_name=os.environ["GEMINI_MODEL"],
+            model_name=get_config("GEMINI_MODEL"),
             generation_config=generation_config,
             safety_settings=safety_settings
         )

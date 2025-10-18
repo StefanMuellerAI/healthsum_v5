@@ -82,6 +82,12 @@ class User(db.Model, UserMixin):
     level = db.Column(db.Enum('user', 'admin', name='user_levels'), default='user')
     is_active = db.Column(db.Boolean, default=True)
     
+    # MFA-Felder
+    mfa_code_hash = db.Column(db.String(128), nullable=True)
+    mfa_code_created_at = db.Column(db.DateTime, nullable=True)
+    mfa_code_attempts = db.Column(db.Integer, default=0)
+    mfa_last_request_at = db.Column(db.DateTime, nullable=True)
+    
     health_records = db.relationship('HealthRecord', back_populates='user')
     
     def set_password(self, password):

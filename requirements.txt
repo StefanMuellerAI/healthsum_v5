@@ -4,6 +4,8 @@ anthropic==0.3.6
 anyio==3.7.1
 azure-ai-vision-imageanalysis==1.0.0b3
 azure-core==1.30.2
+azure-identity==1.15.0
+azure-keyvault-secrets==4.8.0
 
 billiard==4.2.0
 blinker==1.8.2
@@ -22,6 +24,7 @@ dnspython==2.6.1
 filelock==3.16.0
 Flask==3.0.3
 Flask-Login==0.6.3
+Flask-Mail==0.10.0
 Flask-SQLAlchemy==3.1.1
 fsspec==2024.9.0
 google-ai-generativelanguage==0.6.6

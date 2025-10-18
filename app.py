@@ -1,13 +1,13 @@
 import os
 import logging
-from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, abort
+from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, abort, session
 from werkzeug.utils import secure_filename
 from flask import send_from_directory
 from celery_config import create_celery_app
 from models import db, HealthRecord, Report, User, ReportTemplate, TaskMonitor, TaskLog
 from celery import chain
 from tasks import process_pdfs, create_report, process_record, regenerate_report_task, generate_single_report, extract_medical_codes, parse_medical_codes_xml, save_medical_codes, update_medical_codes_descriptions
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask_login import login_user, login_required, logout_user, LoginManager, current_user
 from werkzeug.security import check_password_hash, generate_password_hash
 from celery.app.control import Inspect
@@ -15,6 +15,10 @@ from celery.result import AsyncResult
 from sqlalchemy.exc import IntegrityError
 import re
 from utils import count_tokens
+from flask_mail import Mail, Message
+import secrets
+import string
+from config import get_config
 
 #Todo:
 # - Userid beim create, read, edit und delete von DAtensätzen und Berichten hinzufügen. 
@@ -41,12 +45,23 @@ werkzeug_logger.setLevel(logging.DEBUG)
 
 app = Flask(__name__)
 
-app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')  # Fügen Sie diese Zeile hinzu
+# Konfiguration aus Azure Key Vault laden
+app.config['SECRET_KEY'] = get_config('SECRET_KEY')
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///health_records.db'
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['CELERY_BROKER_URL'] = 'redis://localhost:6380/0'
 app.config['CELERY_RESULT_BACKEND'] = 'redis://localhost:6380/0'
+
+# Mail-Konfiguration aus Azure Key Vault
+app.config['MAIL_SERVER'] = get_config('MAIL_SERVER')
+app.config['MAIL_PORT'] = int(get_config('MAIL_PORT', 587))
+app.config['MAIL_USERNAME'] = get_config('MAIL_USERNAME')
+app.config['MAIL_PASSWORD'] = get_config('MAIL_PASSWORD')
+app.config['MAIL_USE_TLS'] = get_config('MAIL_USE_TLS', 'True') == 'True'
+app.config['MAIL_USE_SSL'] = get_config('MAIL_USE_SSL', 'False') == 'True'
+
 db.init_app(app)
+mail = Mail(app)
 
 # Erstellen der Celery-Instanz
 celery = create_celery_app(app)
@@ -58,6 +73,38 @@ login_manager.login_view = 'login'
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
+
+# MFA-Hilfsfunktionen
+def generate_mfa_code():
+    """Generiert einen 8-stelligen numerischen Code"""
+    return ''.join(secrets.choice(string.digits) for _ in range(8))
+
+def send_mfa_code(user, code):
+    """Sendet MFA-Code per Email"""
+    try:
+        html_body = render_template('e-mails/mfa_code_template.html', 
+                                    user=user, 
+                                    code=code)
+        msg = Message(
+            subject="Ihr Anmeldecode für Healthsum",
+            sender=app.config['MAIL_USERNAME'],
+            recipients=[user.email]
+        )
+        msg.html = html_body
+        mail.send(msg)
+        logger.info(f"MFA code sent to {user.email}")
+        return True
+    except Exception as e:
+        logger.error(f"Error sending MFA code to {user.email}: {e}")
+        return False
+
+def check_rate_limit(user):
+    """Prüft Rate-Limiting (max 1 Code alle 5 Minuten)"""
+    if user.mfa_last_request_at:
+        time_since_last = datetime.utcnow() - user.mfa_last_request_at
+        if time_since_last < timedelta(minutes=5):
+            return False
+    return True
 
 @app.route('/')
 @login_required
@@ -691,19 +738,162 @@ def login():
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
+        
+        # Prüfe Username und Passwort
         user = User.query.filter_by(username=username).first()
         if user and user.check_password(password):
-            login_user(user)
-            return redirect(url_for('index'))
+            # Prüfe ob User aktiv ist
+            if not user.is_active:
+                flash('Ihr Account ist deaktiviert. Bitte kontaktieren Sie den Administrator.', 'danger')
+                return render_template('login.html')
+            
+            # Generiere MFA-Code
+            mfa_code = generate_mfa_code()
+            user.mfa_code_hash = generate_password_hash(mfa_code)
+            user.mfa_code_created_at = datetime.utcnow()
+            user.mfa_code_attempts = 0
+            user.mfa_last_request_at = datetime.utcnow()
+            db.session.commit()
+            
+            # Sende Code per Email
+            if send_mfa_code(user, mfa_code):
+                # Speichere User-ID in Session für MFA-Verifizierung
+                session['mfa_user_id'] = user.id
+                session['mfa_stage'] = True
+                flash('Ein Anmeldecode wurde an Ihre E-Mail-Adresse gesendet.', 'info')
+                return render_template('login.html', show_mfa=True)
+            else:
+                flash('Fehler beim Senden des Anmeldecodes. Bitte versuchen Sie es später erneut.', 'danger')
+                return render_template('login.html')
         else:
             flash('Ungültige Anmeldedaten.', 'danger')
-    return render_template('login.html')
+    
+    # GET request oder nach fehlgeschlagener Anmeldung
+    return render_template('login.html', show_mfa=False)
+
+@app.route('/verify_mfa', methods=['POST'])
+def verify_mfa():
+    """Verifiziert den eingegebenen MFA-Code"""
+    if 'mfa_user_id' not in session:
+        flash('Ungültige Session. Bitte melden Sie sich erneut an.', 'danger')
+        return redirect(url_for('login'))
+    
+    user_id = session['mfa_user_id']
+    user = User.query.get(user_id)
+    
+    if not user:
+        session.clear()
+        flash('Benutzer nicht gefunden.', 'danger')
+        return redirect(url_for('login'))
+    
+    mfa_code = request.form.get('mfa_code', '').strip()
+    
+    # Prüfe ob Code-Hash existiert
+    if not user.mfa_code_hash or not user.mfa_code_created_at:
+        session.clear()
+        flash('Kein gültiger Code vorhanden. Bitte melden Sie sich erneut an.', 'danger')
+        return redirect(url_for('login'))
+    
+    # Prüfe ob Code abgelaufen ist (5 Minuten)
+    time_elapsed = datetime.utcnow() - user.mfa_code_created_at
+    if time_elapsed > timedelta(minutes=5):
+        user.mfa_code_hash = None
+        user.mfa_code_created_at = None
+        user.mfa_code_attempts = 0
+        db.session.commit()
+        session.clear()
+        flash('Der Code ist abgelaufen. Bitte melden Sie sich erneut an.', 'danger')
+        return redirect(url_for('login'))
+    
+    # Prüfe Anzahl der Fehlversuche
+    if user.mfa_code_attempts >= 3:
+        user.mfa_code_hash = None
+        user.mfa_code_created_at = None
+        user.mfa_code_attempts = 0
+        db.session.commit()
+        session.clear()
+        flash('Zu viele Fehlversuche. Bitte fordern Sie einen neuen Code an.', 'danger')
+        return redirect(url_for('login'))
+    
+    # Prüfe ob Code korrekt ist
+    if check_password_hash(user.mfa_code_hash, mfa_code):
+        # Code ist korrekt - Login erfolgreich
+        user.mfa_code_hash = None
+        user.mfa_code_created_at = None
+        user.mfa_code_attempts = 0
+        db.session.commit()
+        
+        # User einloggen
+        login_user(user)
+        session.pop('mfa_user_id', None)
+        session.pop('mfa_stage', None)
+        
+        logger.info(f"User {user.username} successfully logged in with MFA")
+        flash('Erfolgreich angemeldet!', 'success')
+        return redirect(url_for('index'))
+    else:
+        # Code ist falsch - Fehlversuch zählen
+        user.mfa_code_attempts += 1
+        remaining_attempts = 3 - user.mfa_code_attempts
+        db.session.commit()
+        
+        if remaining_attempts > 0:
+            flash(f'Ungültiger Code. Noch {remaining_attempts} Versuch(e) übrig.', 'danger')
+            return render_template('login.html', show_mfa=True)
+        else:
+            user.mfa_code_hash = None
+            user.mfa_code_created_at = None
+            user.mfa_code_attempts = 0
+            db.session.commit()
+            session.clear()
+            flash('Zu viele Fehlversuche. Bitte melden Sie sich erneut an.', 'danger')
+            return redirect(url_for('login'))
+
+@app.route('/resend_mfa', methods=['POST'])
+def resend_mfa():
+    """Sendet einen neuen MFA-Code"""
+    if 'mfa_user_id' not in session:
+        flash('Ungültige Session. Bitte melden Sie sich erneut an.', 'danger')
+        return redirect(url_for('login'))
+    
+    user_id = session['mfa_user_id']
+    user = User.query.get(user_id)
+    
+    if not user:
+        session.clear()
+        flash('Benutzer nicht gefunden.', 'danger')
+        return redirect(url_for('login'))
+    
+    # Prüfe Rate-Limiting
+    if not check_rate_limit(user):
+        time_since_last = datetime.utcnow() - user.mfa_last_request_at
+        remaining_seconds = int((timedelta(minutes=5) - time_since_last).total_seconds())
+        remaining_minutes = remaining_seconds // 60
+        flash(f'Bitte warten Sie noch {remaining_minutes} Minute(n), bevor Sie einen neuen Code anfordern.', 'warning')
+        return render_template('login.html', show_mfa=True)
+    
+    # Generiere neuen Code
+    mfa_code = generate_mfa_code()
+    user.mfa_code_hash = generate_password_hash(mfa_code)
+    user.mfa_code_created_at = datetime.utcnow()
+    user.mfa_code_attempts = 0  # Fehlversuche zurücksetzen
+    user.mfa_last_request_at = datetime.utcnow()
+    db.session.commit()
+    
+    # Sende neuen Code per Email
+    if send_mfa_code(user, mfa_code):
+        flash('Ein neuer Anmeldecode wurde an Ihre E-Mail-Adresse gesendet.', 'success')
+        return render_template('login.html', show_mfa=True)
+    else:
+        flash('Fehler beim Senden des Codes. Bitte versuchen Sie es später erneut.', 'danger')
+        return render_template('login.html', show_mfa=True)
 
 @app.route('/logout')
 @login_required
 def logout():
     logout_user()
-    return redirect(url_for('index'))
+    session.clear()
+    return redirect(url_for('login'))
 
 
 def are_tasks_running():

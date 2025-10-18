@@ -7,53 +7,116 @@
             Login
         </h2>
         <div class="bg-white py-8 px-6 shadow sm:rounded-lg sm:px-10">
-            <form class="space-y-6" method="POST">
-                <div>
-                    <label for="username" class="block text-lg font-medium text-gray-700">
-                        Benutzername
-                    </label>
-                    <div class="mt-1">
-                        <input id="username" name="username" type="text" required
-                               class="appearance-none block w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 text-lg"
-                               placeholder="Geben Sie Ihren Benutzernamen ein">
-                    </div>
-                </div>
-
-                <div>
-                    <label for="password" class="block text-lg font-medium text-gray-700">
-                        Passwort
-                    </label>
-                    <div class="mt-1 relative">
-                        <input id="password" name="password" type="password" required
-                               class="appearance-none block w-full px-4 py-3 pr-10 border border-gray-300 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 text-lg"
-                               placeholder="Geben Sie Ihr Passwort ein">
-                        <button type="button" onclick="togglePasswordVisibility()" class="absolute inset-y-0 right-0 pr-3 flex items-center text-sm leading-5">
-                            <!-- Auge-Icon zum Anzeigen/Verbergen des Passworts -->
-                            <svg id="password-icon" class="h-6 w-6 text-gray-500" fill="none" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" stroke="currentColor">
-                                <path id="eye-icon" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                <path id="eye-path" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5s8.268 2.943 9.542 7c-1.274 4.057-5.065 7-9.542 7S3.732 16.057 2.458 12z" />
-                            </svg>
-                        </button>
-                    </div>
-                </div>
-
-                <div>
-                    <button type="submit"
-                            class="w-full flex justify-center py-3 px-6 border border-transparent rounded-lg shadow-sm text-lg font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150 ease-in-out">
-                        Anmelden
-                    </button>
-                </div>
-            </form>
-
-            {% with messages = get_flashed_messages() %}
+            
+            {% with messages = get_flashed_messages(with_categories=true) %}
                 {% if messages %}
-                    {% for message in messages %}
-                        <div class="mt-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg relative" role="alert">
-                            <span class="block text-lg">{{ message }}</span>
-                        </div>
+                    {% for category, message in messages %}
+                        {% if category == 'success' %}
+                            <div class="mb-4 bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded-lg relative" role="alert">
+                                <span class="block text-lg">{{ message }}</span>
+                            </div>
+                        {% elif category == 'info' %}
+                            <div class="mb-4 bg-blue-100 border border-blue-400 text-blue-700 px-4 py-3 rounded-lg relative" role="alert">
+                                <span class="block text-lg">{{ message }}</span>
+                            </div>
+                        {% elif category == 'warning' %}
+                            <div class="mb-4 bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-3 rounded-lg relative" role="alert">
+                                <span class="block text-lg">{{ message }}</span>
+                            </div>
+                        {% else %}
+                            <div class="mb-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg relative" role="alert">
+                                <span class="block text-lg">{{ message }}</span>
+                            </div>
+                        {% endif %}
                     {% endfor %}
                 {% endif %}
             {% endwith %}
+            
+            <!-- Username/Passwort Form -->
+            <div id="credentials-form" {% if show_mfa %}style="display: none;"{% endif %}>
+                <form class="space-y-6" method="POST" action="{{ url_for('login') }}">
+                    <div>
+                        <label for="username" class="block text-lg font-medium text-gray-700">
+                            Benutzername
+                        </label>
+                        <div class="mt-1">
+                            <input id="username" name="username" type="text" required
+                                   class="appearance-none block w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 text-lg"
+                                   placeholder="Geben Sie Ihren Benutzernamen ein">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label for="password" class="block text-lg font-medium text-gray-700">
+                            Passwort
+                        </label>
+                        <div class="mt-1 relative">
+                            <input id="password" name="password" type="password" required
+                                   class="appearance-none block w-full px-4 py-3 pr-10 border border-gray-300 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 text-lg"
+                                   placeholder="Geben Sie Ihr Passwort ein">
+                            <button type="button" onclick="togglePasswordVisibility()" class="absolute inset-y-0 right-0 pr-3 flex items-center text-sm leading-5">
+                                <svg id="password-icon" class="h-6 w-6 text-gray-500" fill="none" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path id="eye-icon" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                    <path id="eye-path" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5s8.268 2.943 9.542 7c-1.274 4.057-5.065 7-9.542 7S3.732 16.057 2.458 12z" />
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div>
+                        <button type="submit"
+                                class="w-full flex justify-center py-3 px-6 border border-transparent rounded-lg shadow-sm text-lg font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150 ease-in-out">
+                            Weiter
+                        </button>
+                    </div>
+                </form>
+            </div>
+            
+            <!-- MFA Code Form -->
+            <div id="mfa-form" {% if not show_mfa %}style="display: none;"{% endif %}>
+                <div class="mb-6">
+                    <p class="text-gray-700 text-lg">
+                        Bitte geben Sie den 8-stelligen Code ein, der an Ihre E-Mail-Adresse gesendet wurde.
+                    </p>
+                    <div id="timer" class="mt-2 text-sm text-gray-600"></div>
+                </div>
+                
+                <form class="space-y-6" method="POST" action="{{ url_for('verify_mfa') }}">
+                    <div>
+                        <label for="mfa_code" class="block text-lg font-medium text-gray-700">
+                            Anmeldecode
+                        </label>
+                        <div class="mt-1">
+                            <input id="mfa_code" name="mfa_code" type="text" required
+                                   pattern="[0-9]{8}" maxlength="8"
+                                   class="appearance-none block w-full px-4 py-3 border border-gray-300 rounded-lg shadow-sm placeholder-gray-400 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 text-2xl text-center tracking-widest font-mono"
+                                   placeholder="00000000"
+                                   autocomplete="off">
+                            <p class="mt-2 text-sm text-gray-500">Der Code besteht aus 8 Ziffern</p>
+                        </div>
+                    </div>
+
+                    <div>
+                        <button type="submit"
+                                class="w-full flex justify-center py-3 px-6 border border-transparent rounded-lg shadow-sm text-lg font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150 ease-in-out">
+                            Anmelden
+                        </button>
+                    </div>
+                </form>
+                
+                <div class="mt-4 text-center">
+                    <form method="POST" action="{{ url_for('resend_mfa') }}" class="inline">
+                        <button type="submit" class="text-indigo-600 hover:text-indigo-500 font-medium">
+                            Neuen Code anfordern
+                        </button>
+                    </form>
+                    <span class="mx-2 text-gray-400">|</span>
+                    <a href="{{ url_for('login') }}" class="text-indigo-600 hover:text-indigo-500 font-medium">
+                        Zurück zum Login
+                    </a>
+                </div>
+            </div>
+            
         </div>
     </div>
 </div>
@@ -65,14 +128,47 @@ function togglePasswordVisibility() {
 
     if (passwordInput.type === 'password') {
         passwordInput.type = 'text';
-        // Ändere das Icon zu "Auge geschlossen"
         passwordIcon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.915 0-9.092-3.155-10.708-7.5a9.974 9.974 0 012.065-3.152M14.121 14.121a4 4 0 01-5.657-5.657"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.535 8.464l5.657-5.657M8.465 15.536L2.808 21.192"/>';
     } else {
         passwordInput.type = 'password';
-        // Ändere das Icon zurück zu "Auge offen"
         passwordIcon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>';
     }
 }
+
+// Countdown-Timer für MFA
+{% if show_mfa %}
+(function() {
+    var timerElement = document.getElementById('timer');
+    var expiryTime = new Date().getTime() + (5 * 60 * 1000); // 5 Minuten
+    
+    function updateTimer() {
+        var now = new Date().getTime();
+        var distance = expiryTime - now;
+        
+        if (distance < 0) {
+            timerElement.innerHTML = '<span class="text-red-600 font-semibold">Code abgelaufen. Bitte neuen Code anfordern.</span>';
+            return;
+        }
+        
+        var minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
+        var seconds = Math.floor((distance % (1000 * 60)) / 1000);
+        
+        timerElement.innerHTML = '<span class="font-semibold">Code gültig für: ' + 
+            minutes + 'm ' + seconds + 's</span>';
+        
+        setTimeout(updateTimer, 1000);
+    }
+    
+    updateTimer();
+})();
+{% endif %}
+
+// Auto-focus auf Code-Eingabefeld
+{% if show_mfa %}
+document.addEventListener('DOMContentLoaded', function() {
+    document.getElementById('mfa_code').focus();
+});
+{% endif %}
 </script>
 
 {% endblock %}

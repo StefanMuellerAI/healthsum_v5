@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>Ihr Anmeldecode</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            color: #333333;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #ffffff;
+            padding: 40px;
+            border-radius: 10px;
+        }
+        h1 {
+            color: #2F5496;
+            text-align: center;
+        }
+        .code-box {
+            background-color: #f0f4ff;
+            border: 2px solid #2F5496;
+            border-radius: 8px;
+            padding: 30px;
+            text-align: center;
+            margin: 30px 0;
+        }
+        .code {
+            font-size: 42px;
+            font-weight: bold;
+            letter-spacing: 8px;
+            color: #2F5496;
+            font-family: 'Courier New', monospace;
+        }
+        .warning {
+            background-color: #fff3cd;
+            border: 1px solid #ffc107;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 20px 0;
+            color: #856404;
+        }
+        .content {
+            line-height: 1.6;
+        }
+        .footer {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #dddddd;
+            font-size: 12px;
+            color: #777777;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Anmeldecode für Healthsum</h1>
+        <div class="content">
+            <p>Hallo {{ user.vorname }} {{ user.nachname }},</p>
+            <p>Sie haben versucht, sich bei Healthsum anzumelden. Bitte verwenden Sie den folgenden Code, um Ihre Anmeldung abzuschließen:</p>
+        </div>
+        
+        <div class="code-box">
+            <div class="code">{{ code }}</div>
+        </div>
+        
+        <div class="warning">
+            <strong>⚠️ Wichtig:</strong> Dieser Code ist nur für <strong>5 Minuten</strong> gültig.
+        </div>
+        
+        <div class="content">
+            <p>Falls Sie diese Anmeldung nicht angefordert haben, ignorieren Sie diese E-Mail bitte.</p>
+            <p>Aus Sicherheitsgründen teilen Sie diesen Code niemals mit anderen Personen.</p>
+            <p>Mit freundlichen Grüßen,<br>
+            Ihr Healthsum Team</p>
+        </div>
+        
+        <div class="footer">
+            <p>Dies ist eine automatisch generierte E-Mail. Bitte antworten Sie nicht auf diese Nachricht.</p>
+        </div>
+    </div>
+</body>
+</html>
+
