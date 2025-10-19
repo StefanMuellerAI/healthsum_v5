@@ -6,6 +6,8 @@ azure-ai-vision-imageanalysis==1.0.0b3
 azure-core==1.31.0
 azure-identity==1.19.0
 azure-keyvault-secrets==4.9.0
+msal==1.31.0
+msal-extensions==1.2.0
 
 billiard==4.2.0
 blinker==1.8.2

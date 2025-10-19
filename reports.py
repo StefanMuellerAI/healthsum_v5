@@ -1,11 +1,13 @@
 import os
 import json
 import pandas as pd
+import base64
 from utils import repair_json
 from openai import OpenAI
 from datetime import datetime
 import google.generativeai as genai
 from google.ai.generativelanguage_v1beta.types import content
+from google.generativeai.types import content_types
 import logging
 import time
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -358,7 +360,7 @@ def get_system_pdf_path(filename):
     return os.path.join(system_prompts_dir, filename)
 
 def load_system_pdf_for_gemini(pdf_filename):
-    """Lädt eine System-PDF für Gemini hoch"""
+    """Lädt eine System-PDF für Gemini - als Inline-Daten statt Upload"""
     if not pdf_filename:
         return None
     
@@ -369,11 +371,30 @@ def load_system_pdf_for_gemini(pdf_filename):
     
     try:
         logger.info(f"Lade System-PDF für Gemini: {pdf_path}")
-        pdf_file = genai.upload_file(path=pdf_path)
-        logger.info(f"System-PDF erfolgreich hochgeladen: {pdf_file.name}")
-        return pdf_file
+        
+        # Für Gemini 2.5: PDF als Inline-Daten laden statt Upload
+        # Lese die PDF-Datei als Bytes
+        with open(pdf_path, 'rb') as f:
+            pdf_data = f.read()
+        
+        # Erstelle ein Inline-Datenobjekt für Gemini
+        pdf_base64 = base64.b64encode(pdf_data).decode('utf-8')
+        
+        # Erstelle das Part-Objekt für Gemini
+        pdf_part = content_types.to_part({
+            "inline_data": {
+                "mime_type": "application/pdf",
+                "data": pdf_base64
+            }
+        })
+        
+        logger.info(f"System-PDF erfolgreich als Inline-Daten geladen: {pdf_filename} ({len(pdf_data)} bytes)")
+        return pdf_part
+        
     except Exception as e:
-        logger.error(f"Fehler beim Hochladen der System-PDF: {e}")
+        logger.error(f"Fehler beim Laden der System-PDF: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return None
 
 # Funktion für die Erstellung des Berichts mit Google Gemini
@@ -386,9 +407,16 @@ def generate_report_gemini(output_format, example_structure, system_prompt, prom
         logger.info(f"Starte Gemini Bericht für Jahr {year}")
         
         # System-PDF laden falls vorhanden
-        system_pdf_file = load_system_pdf_for_gemini(system_pdf_filename)
-        if system_pdf_file:
-            logger.info(f"System-PDF wird verwendet: {system_pdf_filename}")
+        if system_pdf_filename:
+            logger.info(f"🔍 Versuche System-PDF zu laden: {system_pdf_filename}")
+            system_pdf_file = load_system_pdf_for_gemini(system_pdf_filename)
+            if system_pdf_file:
+                logger.info(f"✅ System-PDF erfolgreich geladen: {system_pdf_filename}")
+            else:
+                logger.warning(f"⚠️ System-PDF konnte nicht geladen werden: {system_pdf_filename}")
+        else:
+            system_pdf_file = None
+            logger.info("ℹ️ Kein system_pdf_filename angegeben - kein System-PDF wird verwendet")
         
         if not use_custom_instructions:
             year_focussed_actual_prompt = (
@@ -429,11 +457,18 @@ def generate_report_gemini(output_format, example_structure, system_prompt, prom
                     "temperature": 1
                 }
 
-           
+            # Safety Settings für medizinische Daten
+            safety_settings = [
+                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+            ]
             
             gemini_model = genai.GenerativeModel(
                 model_name=get_config("GEMINI_MODEL"),
-                generation_config=generation_config
+                generation_config=generation_config,
+                safety_settings=safety_settings
             )
 
             chat_session = gemini_model.start_chat(
@@ -442,18 +477,23 @@ def generate_report_gemini(output_format, example_structure, system_prompt, prom
 
             # Erstelle die Nachricht mit oder ohne PDF
             if system_pdf_file:
-                # Mit System-PDF
+                # Mit System-PDF (als Inline-Daten)
                 message_content = [
                     system_pdf_file,
                     f"{year_focussed_actual_prompt}\n\nDas ist deine Datenbasis: {health_record_text}"
                 ]
-                logger.info("Sende Nachricht mit System-PDF an Gemini")
+                logger.info(f"📤 Sende Nachricht MIT System-PDF an Gemini: {system_pdf_filename}")
+                logger.info(f"   PDF als Inline-Daten geladen")
+                logger.info(f"   Prompt-Länge: {len(year_focussed_actual_prompt)} chars")
+                logger.info(f"   Daten-Länge: {len(health_record_text)} chars")
             else:
                 # Ohne System-PDF (Standard)
                 message_content = f"{year_focussed_actual_prompt}\n\nDas ist deine Datenbasis: {health_record_text}"
-                logger.info("Sende Nachricht ohne System-PDF an Gemini")
+                logger.info("📤 Sende Nachricht OHNE System-PDF an Gemini")
+                logger.info(f"   Nachricht-Länge: {len(message_content)} chars")
 
             response = chat_session.send_message(message_content)
+            logger.info("✅ Antwort von Gemini erhalten")
             
             # Bessere Gemini Response-Behandlung
             try:
