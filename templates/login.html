@@ -34,7 +34,7 @@
             
             <!-- Username/Passwort Form -->
             <div id="credentials-form" {% if show_mfa %}style="display: none;"{% endif %}>
-                <form class="space-y-6" method="POST" action="{{ url_for('login') }}">
+                <form id="login-form" class="space-y-6" method="POST" action="{{ url_for('login') }}" onsubmit="return handleLoginSubmit(event)">
                     <div>
                         <label for="username" class="block text-lg font-medium text-gray-700">
                             Benutzername
@@ -64,7 +64,7 @@
                     </div>
 
                     <div>
-                        <button type="submit"
+                        <button id="login-submit-btn" type="submit"
                                 class="w-full flex justify-center py-3 px-6 border border-transparent rounded-lg shadow-sm text-lg font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150 ease-in-out">
                             Weiter
                         </button>
@@ -81,7 +81,7 @@
                     <div id="timer" class="mt-2 text-sm text-gray-600"></div>
                 </div>
                 
-                <form class="space-y-6" method="POST" action="{{ url_for('verify_mfa') }}">
+                <form id="mfa-verify-form" class="space-y-6" method="POST" action="{{ url_for('verify_mfa') }}" onsubmit="return handleMfaVerifySubmit(event)">
                     <div>
                         <label for="mfa_code" class="block text-lg font-medium text-gray-700">
                             Anmeldecode
@@ -97,7 +97,7 @@
                     </div>
 
                     <div>
-                        <button type="submit"
+                        <button id="mfa-verify-btn" type="submit"
                                 class="w-full flex justify-center py-3 px-6 border border-transparent rounded-lg shadow-sm text-lg font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150 ease-in-out">
                             Anmelden
                         </button>
@@ -105,8 +105,8 @@
                 </form>
                 
                 <div class="mt-4 text-center">
-                    <form method="POST" action="{{ url_for('resend_mfa') }}" class="inline">
-                        <button type="submit" class="text-indigo-600 hover:text-indigo-500 font-medium">
+                    <form id="resend-mfa-form" method="POST" action="{{ url_for('resend_mfa') }}" class="inline" onsubmit="return handleResendMfaSubmit(event)">
+                        <button id="resend-mfa-btn" type="submit" class="text-indigo-600 hover:text-indigo-500 font-medium">
                             Neuen Code anfordern
                         </button>
                     </form>
@@ -122,6 +122,66 @@
 </div>
 
 <script>
+// Doppelklick-Prävention für alle Formulare
+var formSubmitting = {
+    login: false,
+    mfaVerify: false,
+    resendMfa: false
+};
+
+function handleLoginSubmit(event) {
+    if (formSubmitting.login) {
+        event.preventDefault();
+        return false;
+    }
+    
+    formSubmitting.login = true;
+    var btn = document.getElementById('login-submit-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<svg class="animate-spin h-5 w-5 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>';
+    btn.classList.add('opacity-75', 'cursor-not-allowed');
+    
+    return true;
+}
+
+function handleMfaVerifySubmit(event) {
+    if (formSubmitting.mfaVerify) {
+        event.preventDefault();
+        return false;
+    }
+    
+    formSubmitting.mfaVerify = true;
+    var btn = document.getElementById('mfa-verify-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<svg class="animate-spin h-5 w-5 mx-auto" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>';
+    btn.classList.add('opacity-75', 'cursor-not-allowed');
+    
+    return true;
+}
+
+function handleResendMfaSubmit(event) {
+    if (formSubmitting.resendMfa) {
+        event.preventDefault();
+        return false;
+    }
+    
+    formSubmitting.resendMfa = true;
+    var btn = document.getElementById('resend-mfa-btn');
+    btn.disabled = true;
+    btn.innerHTML = 'Wird gesendet...';
+    btn.classList.add('opacity-50', 'cursor-not-allowed');
+    
+    // Re-enable nach 5 Sekunden (für den Fall, dass die Seite nicht neu lädt)
+    setTimeout(function() {
+        formSubmitting.resendMfa = false;
+        btn.disabled = false;
+        btn.innerHTML = 'Neuen Code anfordern';
+        btn.classList.remove('opacity-50', 'cursor-not-allowed');
+    }, 5000);
+    
+    return true;
+}
+
 function togglePasswordVisibility() {
     var passwordInput = document.getElementById('password');
     var passwordIcon = document.getElementById('password-icon');

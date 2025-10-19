@@ -1436,22 +1436,34 @@ def process_record(self, data, original_task_id=None):
             return create_error_response(ValueError(f"Record {record_id} not found"), "process_record")
         
         try:
+            logger.info(f"🔍 Calling find_patient_info for record {record_id}")
+            logger.info(f"Record text length: {len(record.text) if record.text else 0}")
+            logger.info(f"Record token count: {record.token_count}")
+            
             start_year, end_year, patient_name = find_patient_info(record.text, record.token_count)
+            
+            logger.info(f"📥 find_patient_info returned: start_year={start_year}, end_year={end_year}, patient_name={patient_name}")
             
             # Sicherstelle, dass wir immer gültige Datumswerte haben
             current_year = datetime.utcnow().year
             
-            if start_year and end_year:
+            # Prüfe ob die Jahre vom Fallback (current_year) sind oder echte Werte
+            if start_year and end_year and not (start_year == current_year and end_year == current_year):
                 record.medical_history_begin = datetime(start_year, 1, 1)
                 record.medical_history_end = datetime(end_year, 12, 31)
-                logger.info(f"Updated medical history dates for record {record_id}: {start_year}-{end_year}")
+                logger.info(f"✅ Updated medical history dates for record {record_id}: {start_year}-{end_year}")
+            elif start_year == current_year and end_year == current_year:
+                logger.warning(f"⚠️ find_patient_info returned current_year ({current_year}) - likely a fallback/error")
+                logger.warning(f"Setting dates to current_year anyway: {start_year}-{end_year}")
+                record.medical_history_begin = datetime(start_year, 1, 1)
+                record.medical_history_end = datetime(end_year, 12, 31)
             else:
                 # Fallback: Standard-Zeitraum von 20 Jahren bis heute
                 fallback_start_year = current_year - 20
                 fallback_end_year = current_year
                 record.medical_history_begin = datetime(fallback_start_year, 1, 1)
                 record.medical_history_end = datetime(fallback_end_year, 12, 31)
-                logger.warning(f"No valid dates found by find_patient_info for record {record_id}. "
+                logger.warning(f"❌ No valid dates found by find_patient_info for record {record_id}. "
                              f"Using fallback dates: {fallback_start_year}-{fallback_end_year}")
             
             # Patient name update nur wenn gefunden

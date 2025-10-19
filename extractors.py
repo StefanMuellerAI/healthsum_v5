@@ -37,8 +37,8 @@ openai_model = get_config("OPENAI_MODEL")
 logger.info("EXTRACTORS DEBUG: Configuring Gemini...")
 genai.configure(api_key=get_config("GEMINI_API_KEY"))
 logger.info("EXTRACTORS DEBUG: Creating Gemini model...")
-# Verwende das gleiche Modell wie in reports.py
-gemini_model_name = get_config("GEMINI_MODEL", "gemini-1.5-pro")
+# Verwende das Modell aus dem Key Vault (z.B. gemini-2.0-flash-exp)
+gemini_model_name = get_config("GEMINI_MODEL")  # Kein Fallback - muss im Key Vault sein
 logger.info(f"EXTRACTORS DEBUG: Using Gemini model: {gemini_model_name}")
 gemini_model = genai.GenerativeModel(gemini_model_name)
 logger.info(f"EXTRACTORS DEBUG: Gemini model created, type: {type(gemini_model)}")

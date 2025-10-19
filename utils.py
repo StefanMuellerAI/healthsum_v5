@@ -18,8 +18,12 @@ logger = logging.getLogger(__name__)
 
 # Verwende get_config() statt os.environ für Azure Key Vault Integration
 openai_model = get_config("OPENAI_MODEL")
+token_threshold = int(get_config("TOKEN_THRESHOLD", "100000"))
+gemini_model_name = get_config("GEMINI_MODEL")  # Kein Fallback - muss im Key Vault sein
 genai.configure(api_key=get_config("GEMINI_API_KEY"))
-gemini_model = genai.GenerativeModel(get_config("GEMINI_MODEL", "gemini-1.5-pro"))
+gemini_model = genai.GenerativeModel(gemini_model_name)
+logger.info(f"📊 utils.py - TOKEN_THRESHOLD aus Key Vault geladen: {token_threshold}")
+logger.info(f"📊 utils.py - GEMINI_MODEL aus Key Vault geladen: {gemini_model_name}")
 
 
 def count_tokens(text):
@@ -56,13 +60,21 @@ def find_patient_info(input_text, token_count):
     :param token_count: Anzahl der Tokens im Input, um das Modell zu wählen
     :return: Tuple mit (start_year, end_year, patient_name) oder (aktuelle Jahreszahl, aktuelle Jahreszahl, None) wenn keine Informationen gefunden wurden
     """
+    current_year = datetime.now().year
+    logger.info("="*80)
+    logger.info(f"🔍 STARTING find_patient_info")
+    logger.info(f"Input text length: {len(input_text) if input_text else 0} chars")
+    logger.info(f"Input text preview: {input_text[:200] if input_text else 'EMPTY'}...")
+    logger.info(f"Token count: {token_count}")
+    
     try:
-        current_year = datetime.now().year
-        # Erhöhte Schwelle für konsistente Modellauswahl
-        model_used = "GPT-4" if token_count <= 20000 else "Google Gemini"
-        print(f"find_patient_info: Token count = {token_count}, using model: {model_used}")
+        # Verwende den TOKEN_THRESHOLD aus dem Key Vault
+        use_gpt4 = token_count <= token_threshold
+        model_used = "GPT-4" if use_gpt4 else "Google Gemini"
+        logger.info(f"📊 Token count = {token_count}, Threshold = {token_threshold}")
+        logger.info(f"🤖 Selected model: {model_used}")
         
-        if token_count <= 100:
+        if use_gpt4:
             # GPT-4 wird verwendet
             response = openai_client.chat.completions.create(
                 model=openai_model,  # Stellen Sie sicher, dass Sie das korrekte Modell verwenden
@@ -79,51 +91,128 @@ def find_patient_info(input_text, token_count):
             response_content = response.choices[0].message.content
         else:
             example_response = {
-                "start_year": "2004",
-                "end_year": "2022",
+                "start_year": 2004,
+                "end_year": 2022,
                 "patient_name": "John Doe"
             }
 
-            # Google Gemini wird verwendet
-            response = gemini_model.generate_content(
-                f"You are a helpful AI assistant specialized in the extraction of unstructured patient medical data. Your result is a valid JSON object. ake a deep breath now! Concentrate! Find me across the whole medical history and all files the earliest year (start_year) and the latest year (end_year) of treatments, as well as the patient's name in this input. Use for start_year and end_year datetime objects. Give it back as a JSON object: {input_text}. It can be that start_year equals end_year because the medical history is just one year long. If you can't find a specific piece of information, use null for that field. Input: {input_text}. Example response: {example_response}",
-                generation_config=genai.types.GenerationConfig(
-                    max_output_tokens=500,  # Gemini kann größere Antworten verarbeiten
-                    temperature=0.1,
-                    response_mime_type="application/json"
-                )
-            )
-            response_content = response.text.strip()
-            print(response_content)
+            # Google Gemini wird verwendet (mit 1M Token Context-Fenster)
+            prompt = f"""Extract from the medical text below:
+1. start_year: earliest year mentioned (4-digit number)
+2. end_year: latest year mentioned (4-digit number)
+3. patient_name: full name of the patient
 
-        print(f"Model used: {model_used}")
-        print(f"Raw response: {response_content[:100]}...")  # Die ersten 100 Zeichen zur Überprüfung
+Return ONLY this JSON (no explanation, no additional text):
+{json.dumps(example_response)}
+
+Medical text:
+{input_text}
+"""
+            
+            # Safety Settings für medizinische Daten
+            safety_settings = [
+                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+            ]
+            
+            response = gemini_model.generate_content(
+                prompt,
+                generation_config=genai.types.GenerationConfig(
+                    max_output_tokens=8192,  # Erhöht, um genug Platz zu haben
+                    temperature=0.0,  # Deterministisch für konsistente Ergebnisse
+                    response_mime_type="application/json"
+                ),
+                safety_settings=safety_settings
+            )
+            
+            # Prüfe auf Probleme BEVOR wir response.text aufrufen
+            if not response.candidates or not response.candidates[0].content.parts:
+                logger.error(f"❌ Gemini did not return a valid response!")
+                logger.error(f"Candidates: {response.candidates}")
+                if response.candidates:
+                    logger.error(f"Safety ratings: {response.candidates[0].safety_ratings}")
+                    logger.error(f"Finish reason: {response.candidates[0].finish_reason}")
+                    finish_reason = response.candidates[0].finish_reason
+                    
+                    # finish_reason: 1=STOP (normal), 2=MAX_TOKENS, 3=SAFETY, 4=RECITATION, 5=OTHER
+                    if finish_reason == 2:  # MAX_TOKENS
+                        logger.error(f"❌ Gemini hit MAX_TOKENS limit - prompt or response too long")
+                    elif finish_reason == 3:  # SAFETY
+                        logger.error(f"❌ Gemini blocked due to SAFETY")
+                    else:
+                        logger.error(f"❌ Gemini stopped with finish_reason: {finish_reason}")
+                        
+                raise ValueError(f"Gemini API did not return valid content (finish_reason={finish_reason if 'finish_reason' in locals() else 'unknown'})")
+            
+            response_content = response.text.strip()
+            logger.info(f"✅ Gemini response received: {len(response_content)} chars")
+            logger.debug(f"Gemini response preview: {response_content[:200]}...")
+
+        logger.info(f"Model used: {model_used}")
+        logger.info(f"Raw response: {response_content[:200]}...")
 
         # Parsen der JSON-Antwort
         response_dict = json.loads(response_content)
-        start_year = response_dict.get('start_year')
-        end_year = response_dict.get('end_year')
+        start_year_raw = response_dict.get('start_year')
+        end_year_raw = response_dict.get('end_year')
         patient_name = response_dict.get('patient_name')
 
+        logger.info(f"Parsed values from API: start_year={start_year_raw}, end_year={end_year_raw}, patient_name={patient_name}")
+
         # Sicherstellen, dass wir gültige Jahreszahlen haben
-        original_start = start_year
-        original_end = end_year
-        start_year = int(start_year) if start_year else current_year
-        end_year = int(end_year) if end_year else current_year
+        # Konvertiere zu int, handle None, null, und String-Werte
+        start_year = None
+        end_year = None
+        
+        if start_year_raw is not None and str(start_year_raw).strip().lower() != 'null':
+            try:
+                start_year = int(start_year_raw)
+                if start_year < 1900 or start_year > current_year + 1:
+                    logger.warning(f"Invalid start_year {start_year}, using current_year")
+                    start_year = current_year
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Could not parse start_year '{start_year_raw}': {e}, using current_year")
+                start_year = current_year
+        else:
+            logger.warning(f"No start_year found in response, using current_year")
+            start_year = current_year
+            
+        if end_year_raw is not None and str(end_year_raw).strip().lower() != 'null':
+            try:
+                end_year = int(end_year_raw)
+                if end_year < 1900 or end_year > current_year + 1:
+                    logger.warning(f"Invalid end_year {end_year}, using current_year")
+                    end_year = current_year
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Could not parse end_year '{end_year_raw}': {e}, using current_year")
+                end_year = current_year
+        else:
+            logger.warning(f"No end_year found in response, using current_year")
+            end_year = current_year
 
         # Sicherstellen, dass patient_name ein String oder None ist
-        patient_name = str(patient_name) if patient_name else None
+        if patient_name and str(patient_name).strip().lower() not in ['null', 'none']:
+            patient_name = str(patient_name).strip()
+        else:
+            patient_name = None
 
-        print(f"find_patient_info results: start_year={original_start} -> {start_year}, end_year={original_end} -> {end_year}, patient={patient_name}")
+        logger.info(f"✅ find_patient_info final results: start_year={start_year}, end_year={end_year}, patient={patient_name}")
         
         return start_year, end_year, patient_name
 
     except json.JSONDecodeError as e:
-        print(f"JSON decode error: {e}")
-        print(f"Problematic JSON string: {response_content}")
+        logger.error(f"❌ JSON decode error in find_patient_info: {e}")
+        try:
+            logger.error(f"Problematic JSON string: {response_content}")
+        except:
+            logger.error("Response content not available")
+        logger.error(f"❌ Returning fallback: ({current_year}, {current_year}, None)")
         return current_year, current_year, None
     except Exception as e:
-        print(f"Unexpected error: {e}")
+        logger.error(f"❌ Unexpected error in find_patient_info: {e}", exc_info=True)
+        logger.error(f"❌ Returning fallback: ({current_year}, {current_year}, None)")
         return current_year, current_year, None
 
 def repair_json(response_text):

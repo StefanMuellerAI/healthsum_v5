@@ -26,25 +26,27 @@ from models import (
     TaskLog as NewTaskLog
 )
 
+# Importiere get_config aus config.py für Azure Key Vault Zugriff
+from config import get_config
+
 # Erstelle eine minimale Flask-App für den Kontext
 app = Flask(__name__)
 
-# Lade SECRET_KEY aus Umgebungsvariable oder config.py
-secret_key = os.getenv('SECRET_KEY')
-
-if not secret_key:
-    try:
-        import config
-        secret_key = getattr(config, 'SECRET_KEY', None)
-    except ImportError:
-        pass
-
-if not secret_key:
-    print("\nFEHLER: SECRET_KEY konnte nicht gefunden werden!")
-    print("\nBitte setzen Sie die Umgebungsvariable:")
-    print("   export SECRET_KEY='ihr-geheimer-schlüssel'")
-    print("\nOder führen Sie das Skript mit:")
-    print("   SECRET_KEY='ihr-geheimer-schlüssel' python migrate_production_db.py")
+# Lade Konfiguration aus Azure Key Vault
+print("🔐 Lade Konfiguration aus Azure Key Vault...")
+try:
+    secret_key = get_config('SECRET_KEY')
+    if not secret_key:
+        raise ValueError("SECRET_KEY ist leer")
+    print("  ✓ SECRET_KEY erfolgreich aus Key Vault geladen")
+except Exception as e:
+    print(f"\n❌ FEHLER: Konnte SECRET_KEY nicht aus Azure Key Vault laden!")
+    print(f"   Fehlerdetails: {str(e)}")
+    print("\n💡 Stellen Sie sicher, dass:")
+    print("   1. Die .env Datei existiert und ENVIRONMENT=test oder ENVIRONMENT=prod enthält")
+    print("   2. Sie authentifiziert sind (Azure CLI: az login)")
+    print("   3. Der Key Vault 'healthsum-vault' existiert und zugänglich ist")
+    print("   4. Das Secret 'healthsum-test' oder 'healthsum-prod' existiert")
     sys.exit(1)
 
 app.config['SECRET_KEY'] = secret_key
@@ -370,14 +372,15 @@ def main():
         print("⚠️  WICHTIG: MFA-Konfiguration erforderlich")
         print("=" * 50)
         print("\nDie Anwendung verwendet jetzt Multi-Faktor-Authentifizierung.")
-        print("Stellen Sie sicher, dass folgende Umgebungsvariablen auf dem Server gesetzt sind:\n")
-        print("  MAIL_SERVER=smtp.gmail.com")
-        print("  MAIL_PORT=587")
-        print("  MAIL_USERNAME=ihre-email@example.com")
-        print("  MAIL_PASSWORD=ihr-app-passwort")
-        print("  MAIL_USE_TLS=True")
-        print("  MAIL_USE_SSL=False")
-        print("\nOhne diese Konfiguration können sich Benutzer nicht anmelden!")
+        print("Stellen Sie sicher, dass folgende Konfigurationen im Azure Key Vault gesetzt sind:\n")
+        print("  MAIL_SERVER (z.B. smtp.gmail.com)")
+        print("  MAIL_PORT (z.B. 587)")
+        print("  MAIL_USERNAME (z.B. ihre-email@example.com)")
+        print("  MAIL_PASSWORD (z.B. ihr-app-passwort)")
+        print("  MAIL_USE_TLS (z.B. True)")
+        print("  MAIL_USE_SSL (z.B. False)")
+        print("\nDiese Werte werden automatisch aus dem Azure Key Vault geladen.")
+        print("Ohne diese Konfiguration können sich Benutzer nicht anmelden!")
         print("\nWeitere Informationen: Siehe MFA_IMPLEMENTATION_README.md")
         print("=" * 50)
         

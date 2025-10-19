@@ -39,6 +39,7 @@ openai_client = OpenAI(
 )
 openai_model = get_config("OPENAI_MODEL")
 token_threshold = int(get_config("TOKEN_THRESHOLD", "100000"))
+logger.info(f"📊 TOKEN_THRESHOLD aus Key Vault geladen: {token_threshold}")
 
 genai.configure(api_key=get_config("GEMINI_API_KEY"))
 gemini_model = genai.GenerativeModel(model_name=get_config("GEMINI_MODEL"))
@@ -556,13 +557,12 @@ def generate_report(template_name, output_format, example_structure, system_prom
     all_year_reports = []
     text_reports = []
 
-    # Entscheide, ob GPT-4 oder Gemini verwendet wird
-    # use_gemini = health_record_token_count > token_threshold
-    use_gemini = True  # Immer Gemini verwenden
+    # Entscheide, ob GPT-4 oder Gemini verwendet wird basierend auf Token-Threshold
+    use_gemini = health_record_token_count > token_threshold
     if use_gemini:
-        logger.info(f"Verwende Google Gemini aufgrund der Token-Anzahl: {health_record_token_count}")
+        logger.info(f"Verwende Google Gemini (Token-Count: {health_record_token_count} > Threshold: {token_threshold})")
     else:
-        logger.info(f"Verwende GPT-4 aufgrund der Token-Anzahl: {health_record_token_count}")
+        logger.info(f"Verwende GPT-4 (Token-Count: {health_record_token_count} <= Threshold: {token_threshold})")
 
     # Verwandle health_record_begin und health_record_end in Jahreszahlen
     # (Diese sind jetzt garantiert nicht None aufgrund der obigen Prüfung)
