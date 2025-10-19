@@ -3,9 +3,9 @@ annotated-types==0.7.0
 anthropic==0.3.6
 anyio==3.7.1
 azure-ai-vision-imageanalysis==1.0.0b3
-azure-core==1.30.2
-azure-identity==1.15.0
-azure-keyvault-secrets==4.8.0
+azure-core==1.31.0
+azure-identity==1.19.0
+azure-keyvault-secrets==4.9.0
 
 billiard==4.2.0
 blinker==1.8.2
